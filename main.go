@@ -81,6 +81,18 @@ type EarningsResult struct {
 	AnalystBearish     int    `json:"analyst_bearish"`  // Sell + StrongSell
 	AnalystTotal       int    `json:"analyst_total"`
 
+	// ── Options setup (pre-earnings) ─────────────────────────────────────────
+	OptionsExpiry      string `json:"options_expiry,omitempty"`
+	ExpectedMove       string `json:"expected_move,omitempty"`
+	ExpectedMovePct    string `json:"expected_move_pct,omitempty"`
+	IVAtm              string `json:"iv_atm,omitempty"`
+	PCVol              string `json:"pc_vol,omitempty"`
+	PCoi               string `json:"pc_oi,omitempty"`
+	Skew               string `json:"skew,omitempty"`
+	MaxPain            string `json:"max_pain,omitempty"`
+	MaxPainVsCurrent   string `json:"max_pain_vs_current,omitempty"`
+	HistAvgAbsRxn      string `json:"hist_avg_abs_rxn,omitempty"`
+
 	// Full quarterly history for JSON/CSV output
 	History []QuarterActual `json:"history,omitempty"`
 
@@ -235,6 +247,33 @@ func main() {
 		r.AnalystBearish = s.Sell + s.StrongSell
 		r.AnalystTotal = s.TotalRatings
 		r.EarningsReactions = s.EarningsReactions
+		if opt := s.Options; opt != nil {
+			r.OptionsExpiry    = opt.Expiry
+			r.ExpectedMove     = fmt.Sprintf("±$%.2f", opt.ExpectedMove)
+			r.ExpectedMovePct  = fmt.Sprintf("±%.1f%%", opt.ExpectedMovePct)
+			r.IVAtm            = fmt.Sprintf("%.1f%%", opt.IVAtm)
+			r.PCVol            = fmt.Sprintf("%.2f", opt.PCVol)
+			r.PCoi             = fmt.Sprintf("%.2f", opt.PCoi)
+			r.Skew             = fmtPct(&opt.Skew)
+			r.MaxPain          = fmt.Sprintf("$%.2f", opt.MaxPain)
+			r.MaxPainVsCurrent = fmtPct(&opt.MaxPainVsCurrent)
+			if opt.HistAvgAbsRxn > 0 {
+				r.HistAvgAbsRxn = fmt.Sprintf("±%.1f%%", opt.HistAvgAbsRxn)
+			} else {
+				r.HistAvgAbsRxn = "N/A"
+			}
+		} else {
+			r.OptionsExpiry    = "N/A"
+			r.ExpectedMove     = "N/A"
+			r.ExpectedMovePct  = "N/A"
+			r.IVAtm            = "N/A"
+			r.PCVol            = "N/A"
+			r.PCoi             = "N/A"
+			r.Skew             = "N/A"
+			r.MaxPain          = "N/A"
+			r.MaxPainVsCurrent = "N/A"
+			r.HistAvgAbsRxn   = "N/A"
+		}
 		results = append(results, r)
 	}
 
@@ -256,6 +295,7 @@ func main() {
 		writeTable(os.Stdout, results)
 		writeReturnsTable(os.Stdout, results)
 		writeEarningsReactionTable(os.Stdout, results)
+		writeOptionsTable(os.Stdout, results)
 		writeAnalystTable(os.Stdout, results)
 		writeInsiderTable(os.Stdout, results)
 		writeInstitutionalTable(os.Stdout, results)
@@ -537,6 +577,36 @@ func writeReturnsTable(w io.Writer, results []EarningsResult) {
 			r.Ret1M,
 			r.Ret6M,
 			r.Ret1Y,
+		)
+	}
+	tw.Flush()
+}
+
+func writeOptionsTable(w io.Writer, results []EarningsResult) {
+	fmt.Fprintln(w, "\n── Pre-Earnings Options Setup ───────────────────────────────────────────")
+	fmt.Fprintln(w, "  EXP_MOVE  = ATM straddle price (call_mid + put_mid) for first expiry after earnings")
+	fmt.Fprintln(w, "  IV_ATM    = implied vol at the money (%; higher = options expensive)")
+	fmt.Fprintln(w, "  P/C_VOL   = put/call volume ratio (<0.7 bullish, >1.2 bearish)")
+	fmt.Fprintln(w, "  P/C_OI    = put/call open-interest ratio (structural positioning)")
+	fmt.Fprintln(w, "  SKEW      = IV(5%-OTM put) − IV(5%-OTM call); positive = downside fear")
+	fmt.Fprintln(w, "  MAX_PAIN  = strike where option buyers lose most (market-maker magnet)")
+	fmt.Fprintln(w, "  HIST_AVG  = avg |reaction| across last 4 earnings (compare to EXP_MOVE%)")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "\nSYMBOL\tCOMPANY\tEXPIRY\tEXP_MOVE\tEXP_MOVE%\tIV_ATM\tP/C_VOL\tP/C_OI\tSKEW\tMAX_PAIN\tMP_vs_$\tHIST_AVG")
+	for _, r := range results {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			r.Symbol,
+			truncate(r.CompanyName, 28),
+			r.OptionsExpiry,
+			r.ExpectedMove,
+			r.ExpectedMovePct,
+			r.IVAtm,
+			r.PCVol,
+			r.PCoi,
+			r.Skew,
+			r.MaxPain,
+			r.MaxPainVsCurrent,
+			r.HistAvgAbsRxn,
 		)
 	}
 	tw.Flush()

@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/http/cookiejar"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +57,9 @@ type FinancialSummary struct {
 	Ret1M        *float64
 	Ret6M        *float64
 	Ret1Y        *float64
+
+	// Pre-earnings options analytics
+	Options *OptionsSnapshot
 
 	// Insider trading (last 3 months)
 	Insider *InsiderSummary
@@ -147,12 +151,21 @@ type nasdaqForecastResponse struct {
 type Enricher struct {
 	secClient  *SECClient
 	httpClient *http.Client
+
+	// Yahoo Finance requires a crumb token tied to a cookie session.
+	// yahooClient holds a cookie jar and is used exclusively for Yahoo API calls.
+	yahooClient      *http.Client
+	yahooCrumb       string
+	yahooCrumbOnce   sync.Once
+	yahooCrumbErr    error
 }
 
 func NewEnricher() *Enricher {
+	jar, _ := cookiejar.New(nil)
 	return &Enricher{
-		secClient:  NewSECClient(),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		secClient:   NewSECClient(),
+		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		yahooClient: &http.Client{Timeout: 30 * time.Second, Jar: jar},
 	}
 }
 
@@ -451,6 +464,21 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 			Pre7Ret:          pre7Ret,
 			Post7Ret:         post7Ret,
 		})
+	}
+
+	// ── Pre-earnings options snapshot ────────────────────────────────────────
+	if snap, err := e.fetchOptionsSnapshot(res.Symbol, res.EarningsDate); err == nil {
+		// Attach average historical reaction magnitude for direct comparison with EM%.
+		if len(s.EarningsReactions) > 0 {
+			total := 0.0
+			for _, rxn := range s.EarningsReactions {
+				total += math.Abs(rxn.RetPct)
+			}
+			snap.HistAvgAbsRxn = total / float64(len(s.EarningsReactions))
+		}
+		s.Options = snap
+	} else {
+		logf("Warning: options data unavailable for %s: %v", res.Symbol, err)
 	}
 
 	// ── Enrich reactions with consensus EPS estimates (Nasdaq calendar) ──────
