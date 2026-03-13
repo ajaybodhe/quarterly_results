@@ -384,6 +384,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 	for _, q := range quarters {
 		quarterByPeriod[q.Period] = q
 	}
+	usedAnnounceDates := make(map[string]bool) // dedup guard: skip if same date used twice
 	for _, q := range quarters {
 		if q.FilingDate == "" {
 			continue
@@ -392,6 +393,23 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 		if err != nil {
 			continue
 		}
+		// Sanity check: announcement must be 10–91 days after period end.
+		// If outside this range the 8-K lookup returned a wrong filing date.
+		periodEnd, perr := time.Parse("2006-01-02", q.Period)
+		if perr == nil {
+			days := int(announceTime.Sub(periodEnd).Hours() / 24)
+			if days < 10 || days > 91 {
+				logf("Warning: skipping reaction for %s period %s — announcement date %s is out of expected range (%d days after period end)", res.Symbol, q.Period, q.FilingDate, days)
+				continue
+			}
+		}
+		// Skip duplicate announcement dates (prevents two quarters sharing the same
+		// wrong date from the 8-K lookup producing identical reaction values).
+		if usedAnnounceDates[q.FilingDate] {
+			logf("Warning: skipping reaction for %s period %s — announcement date %s already used for another quarter", res.Symbol, q.Period, q.FilingDate)
+			continue
+		}
+		usedAnnounceDates[q.FilingDate] = true
 		reactionDay := nextWorkingDay(announceTime)
 		// Skip if reaction day hasn't happened yet (future quarter).
 		if reactionDay.After(now) {
@@ -520,11 +538,58 @@ func (e *Enricher) fetchForwardEPS(symbol string) ([]ForwardQuarter, error) {
 	return out, nil
 }
 
-// fetchPriceHistory fetches ~1 year of daily closing prices from the Nasdaq historical API.
+// fetchPriceHistory fetches ~18 months of daily closing prices from the Nasdaq historical API.
+// 18 months is needed to cover the full 4-quarter reaction window: the oldest of the last
+// 4 reported quarters can have an announcement ~15 months ago, plus a 7-day pre-earnings
+// lookback, plus a small buffer. For example, LULU reports Q3 results in early December
+// every year; without 18 months the prior December's announcement falls outside the window.
+//
+// The Nasdaq API silently caps results at ~300 rows regardless of the limit parameter.
+// With 18 months (~390 trading days) a single call would drop the oldest ~90 days of data.
+// To work around this, two sequential calls cover 9-month halves, then results are merged.
 // Returns a slice sorted oldest → newest.
 func (e *Enricher) fetchPriceHistory(symbol string) ([]pricePoint, error) {
-	to := time.Now()
-	from := to.AddDate(-1, 0, -7) // 1 year + 1 week buffer
+	now := time.Now()
+	mid := now.AddDate(0, -9, 0)   // 9 months ago
+	old := now.AddDate(-1, -9, -7) // 21 months ago (covers oldest quarter + pre7 buffer)
+
+	// Two 9-month windows with a small overlap to avoid gaps around the boundary.
+	seg1, err1 := e.fetchPriceHistoryRange(symbol, old, mid.AddDate(0, 0, 14))
+	seg2, err2 := e.fetchPriceHistoryRange(symbol, mid.AddDate(0, 0, -7), now)
+
+	if err1 != nil && err2 != nil {
+		return nil, fmt.Errorf("both price history calls failed: %v; %v", err1, err2)
+	}
+
+	// Merge segments, dedup by date, sort oldest-first.
+	seen := make(map[string]bool)
+	var merged []pricePoint
+	for _, seg := range [][]pricePoint{seg1, seg2} {
+		for _, p := range seg {
+			key := p.Date.Format("2006-01-02")
+			if !seen[key] {
+				seen[key] = true
+				merged = append(merged, p)
+			}
+		}
+	}
+	if len(merged) == 0 {
+		return nil, fmt.Errorf("no price data returned")
+	}
+	// Sort oldest → newest.
+	for i := 0; i < len(merged)-1; i++ {
+		for j := i + 1; j < len(merged); j++ {
+			if merged[i].Date.After(merged[j].Date) {
+				merged[i], merged[j] = merged[j], merged[i]
+			}
+		}
+	}
+	return merged, nil
+}
+
+// fetchPriceHistoryRange fetches daily closing prices for symbol between from and to.
+// Returns oldest-first. The Nasdaq API returns newest-first; this function reverses the order.
+func (e *Enricher) fetchPriceHistoryRange(symbol string, from, to time.Time) ([]pricePoint, error) {
 	url := fmt.Sprintf(
 		"https://api.nasdaq.com/api/quote/%s/historical?assetClass=stocks&fromdate=%s&limit=300&todate=%s&type=1",
 		symbol, from.Format("2006-01-02"), to.Format("2006-01-02"),
@@ -564,9 +629,6 @@ func (e *Enricher) fetchPriceHistory(symbol string) ([]pricePoint, error) {
 			continue
 		}
 		out = append(out, pricePoint{Date: d, Close: price})
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("no price data returned")
 	}
 	// Nasdaq returns newest-first; reverse to oldest-first.
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {

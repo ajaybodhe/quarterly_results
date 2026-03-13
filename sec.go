@@ -222,7 +222,18 @@ func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, m
 					}
 				}
 			}
-			// Keep only the most recently filed value for each period (handles amendments/restatements).
+			// Only accept filings where the filing date is within 150 days of the period end.
+			// This prevents comparative prior-year data included in a later 10-Q from
+			// overwriting the original filing date (e.g. LULU's Dec 2025 10-Q contains
+			// tagged comparative data for Oct 2024, which would otherwise corrupt the date).
+			endDate, endErr := time.Parse("2006-01-02", e.End)
+			filedDate, filedErr := time.Parse("2006-01-02", e.Filed)
+			if endErr == nil && filedErr == nil {
+				if int(filedDate.Sub(endDate).Hours()/24) > 150 {
+					continue // comparative re-filing; ignore
+				}
+			}
+			// Among valid filings, keep the most recently filed (handles amendments within window).
 			if prev, ok := filingDates[e.End]; !ok || e.Filed > prev {
 				result[e.End] = e.Val
 				filingDates[e.End] = e.Filed
@@ -311,11 +322,12 @@ func (c *SECClient) FetchEarningsAnnouncementDates(symbol string, quarters []Qua
 		return nil, err
 	}
 
-	// Collect all 8-K filing dates (sorted ascending — they come newest-first from SEC).
+	// Collect original 8-K filing dates only (not 8-K/A amendments, which can be dated
+	// months after the original and would corrupt the window lookup).
 	var eightKDates []string
 	r := subs.Filings.Recent
 	for i, form := range r.Form {
-		if form == "8-K" || form == "8-K/A" {
+		if form == "8-K" {
 			eightKDates = append(eightKDates, r.FilingDate[i])
 		}
 	}
@@ -326,10 +338,12 @@ func (c *SECClient) FetchEarningsAnnouncementDates(symbol string, quarters []Qua
 		if q.FilingDate == "" || q.Period == "" {
 			continue
 		}
-		// Earnings 8-Ks are filed between (period_end + 14 days) and (10-Q filing date + 2 days).
-		// This window avoids 8-Ks for other events (e.g., acquisitions just after quarter-end).
+		// Earnings 8-Ks are filed BEFORE (or on the same day as) the 10-Q.
+		// Using filingDate+2 as windowEnd could pick up post-filing 8-Ks (investor
+		// events, executive changes) filed in the days after the 10-Q, causing two
+		// quarters to share the same wrong announcement date.
 		windowStart := dateAddDays(q.Period, 14)
-		windowEnd := dateAddDays(q.FilingDate, 2)
+		windowEnd := q.FilingDate // 8-K must be filed on or before the 10-Q
 
 		// Take the last 8-K in the window (closest to 10-Q filing = earnings release).
 		var best string
