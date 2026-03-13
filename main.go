@@ -545,29 +545,46 @@ func writeReturnsTable(w io.Writer, results []EarningsResult) {
 func writeEarningsReactionTable(w io.Writer, results []EarningsResult) {
 	fmt.Fprintln(w, "\n── Post-Earnings Stock Reaction (next trading day after report) ─────────")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SYMBOL\tCOMPANY\tQUARTER\tANNOUNCED\tRXN_DAY\tPRIOR_CLOSE\tRXN_CLOSE\tRXN_RET")
+	fmt.Fprintln(tw, "SYMBOL\tCOMPANY\tQUARTER\tANNOUNCED\tRXN_DAY\tPRIOR_CLS\tRXN_CLS\tPRE7\tRXN_RET\tPOST7\tEPS_EST\tEPS_ACT\tEPS_BEAT\tREV_ACT")
 	for _, r := range results {
 		if len(r.EarningsReactions) == 0 {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Symbol, truncate(r.CompanyName, 28),
-				"N/A", "N/A", "N/A", "N/A", "N/A", "N/A",
+				"N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A",
 			)
 			continue
 		}
 		for i, rxn := range r.EarningsReactions {
 			sym, name := r.Symbol, truncate(r.CompanyName, 28)
 			if i > 0 {
-				sym, name = "", "" // blank symbol/company for continuation rows
+				sym, name = "", ""
 			}
-			retStr := fmtPct(&rxn.RetPct)
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t$%.2f\t$%.2f\t%s\n",
+			epsEst := "N/A"
+			if rxn.EPSEstimate != 0 {
+				epsEst = fmt.Sprintf("$%.2f", rxn.EPSEstimate)
+			}
+			epsAct := "N/A"
+			if rxn.EPSActual != 0 {
+				epsAct = fmt.Sprintf("$%.2f", rxn.EPSActual)
+			}
+			revAct := "N/A"
+			if rxn.RevenueActual != 0 {
+				revAct = fmt.Sprintf("$%.2fB", rxn.RevenueActual/1e9)
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t$%.2f\t$%.2f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				sym, name,
 				rxn.Period,
 				rxn.AnnouncementDate,
 				rxn.ReactionDay,
 				rxn.PriorClose,
 				rxn.ReactionClose,
-				retStr,
+				fmtPct(rxn.Pre7Ret),
+				fmtPct(&rxn.RetPct),
+				fmtPct(rxn.Post7Ret),
+				epsEst,
+				epsAct,
+				fmtPct(rxn.EPSBeatPct),
+				revAct,
 			)
 		}
 	}

@@ -89,6 +89,16 @@ type EarningsReaction struct {
 	PriorClose       float64 // closing price the day before announcement
 	ReactionClose    float64 // closing price on reaction day
 	RetPct           float64 // pct change: (ReactionClose - PriorClose) / PriorClose * 100
+
+	// Reported vs estimated
+	EPSActual      float64  // actual reported EPS (from SEC EDGAR)
+	EPSEstimate    float64  // consensus EPS estimate at announcement (from Nasdaq calendar)
+	EPSBeatPct     *float64 // (actual − estimate) / |estimate| × 100; nil if estimate unavailable
+	RevenueActual  float64  // actual reported revenue (from SEC EDGAR)
+
+	// Pre/post earnings drift (calendar days, excluding announcement/reaction days)
+	Pre7Ret  *float64 // 7 days before announcement → day before announcement
+	Post7Ret *float64 // reaction day → 7 days after reaction day
 }
 
 // ForwardQuarter holds one future quarter EPS estimate from Nasdaq.
@@ -364,10 +374,15 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 
 	// ── Earnings reactions (last ≤4 historical quarters) ─────────────────────
 	// For each quarter in History that has a FilingDate, compute the stock's
-	// reaction on the next working day after filing vs the day before filing.
+	// reaction on the next working day after announcement vs the day before.
 	quarters := s.History
 	if len(quarters) > 4 {
 		quarters = quarters[len(quarters)-4:]
+	}
+	// Build period → QuarterActual lookup for EPS/revenue actuals.
+	quarterByPeriod := make(map[string]QuarterActual, len(quarters))
+	for _, q := range quarters {
+		quarterByPeriod[q.Period] = q
 	}
 	for _, q := range quarters {
 		if q.FilingDate == "" {
@@ -387,6 +402,25 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 		if !okPrior || !okReact || priorClose == 0 {
 			continue
 		}
+
+		// Pre-earnings drift: 7 calendar days before announcement → day before announcement.
+		var pre7Ret *float64
+		if pre7Close, ok := closestPrice(prices, announceTime.AddDate(0, 0, -7)); ok && pre7Close != 0 {
+			v := pctChange(pre7Close, priorClose)
+			pre7Ret = &v
+		}
+
+		// Post-earnings drift: reaction day close → 7 calendar days after reaction day.
+		// Skips the immediate reaction day (day +1 after announcement).
+		var post7Ret *float64
+		post7Target := reactionDay.AddDate(0, 0, 7)
+		if !post7Target.After(now) {
+			if post7Close, ok := closestPrice(prices, post7Target); ok && post7Close != 0 {
+				v := pctChange(reactionClose, post7Close)
+				post7Ret = &v
+			}
+		}
+
 		s.EarningsReactions = append(s.EarningsReactions, EarningsReaction{
 			Period:           q.Period,
 			AnnouncementDate: q.FilingDate,
@@ -394,7 +428,50 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 			PriorClose:       priorClose,
 			ReactionClose:    reactionClose,
 			RetPct:           pctChange(priorClose, reactionClose),
+			EPSActual:        q.EPS,
+			RevenueActual:    q.Revenue,
+			Pre7Ret:          pre7Ret,
+			Post7Ret:         post7Ret,
 		})
+	}
+
+	// ── Enrich reactions with consensus EPS estimates (Nasdaq calendar) ──────
+	// Fetch all EPS estimates concurrently since each is a separate API call.
+	if len(s.EarningsReactions) > 0 {
+		type epsResult struct {
+			period   string
+			estimate float64
+		}
+		estCh := make(chan epsResult, len(s.EarningsReactions))
+		for _, rxn := range s.EarningsReactions {
+			go func(r EarningsReaction) {
+				t, err := time.Parse("2006-01-02", r.AnnouncementDate)
+				if err != nil {
+					estCh <- epsResult{r.Period, 0}
+					return
+				}
+				est, err := e.fetchNasdaqEPSEstimate(res.Symbol, t)
+				if err != nil {
+					est = 0
+				}
+				estCh <- epsResult{r.Period, est}
+			}(rxn)
+		}
+		epsEstimates := make(map[string]float64, len(s.EarningsReactions))
+		for range s.EarningsReactions {
+			er := <-estCh
+			if er.estimate != 0 {
+				epsEstimates[er.period] = er.estimate
+			}
+		}
+		for i := range s.EarningsReactions {
+			rxn := &s.EarningsReactions[i]
+			if est, ok := epsEstimates[rxn.Period]; ok {
+				rxn.EPSEstimate = est
+				v := pctChange(est, rxn.EPSActual)
+				rxn.EPSBeatPct = &v
+			}
+		}
 	}
 
 	return s
@@ -510,6 +587,47 @@ func closestPrice(points []pricePoint, target time.Time) (float64, bool) {
 		found = true
 	}
 	return result, found
+}
+
+// fetchNasdaqEPSEstimate queries the Nasdaq earnings calendar for a specific date
+// and returns the consensus EPS estimate for the given symbol on that date.
+// This is used to get the pre-earnings consensus for historical quarters.
+func (e *Enricher) fetchNasdaqEPSEstimate(symbol string, date time.Time) (float64, error) {
+	url := fmt.Sprintf("https://api.nasdaq.com/api/calendar/earnings?date=%s", date.Format("2006-01-02"))
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Origin", "https://www.nasdaq.com")
+	req.Header.Set("Referer", "https://www.nasdaq.com/")
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	var raw struct {
+		Data struct {
+			Rows []nasdaqRow `json:"rows"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return 0, err
+	}
+
+	sym := strings.ToUpper(strings.TrimSpace(symbol))
+	for _, row := range raw.Data.Rows {
+		if strings.ToUpper(strings.TrimSpace(row.Symbol)) == sym {
+			return parseEPS(row.EPSForecastRaw), nil
+		}
+	}
+	return 0, fmt.Errorf("symbol %s not in calendar for %s", symbol, date.Format("2006-01-02"))
 }
 
 // ── Growth helpers ────────────────────────────────────────────────────────────
