@@ -33,7 +33,9 @@
       "Bash(sleep 30 && curl -s -b /tmp/yf9.txt \"https://query2.finance.yahoo.com/v1/test/getcrumb\" \\\\\n  -A \"Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/120.0.0.0 Safari/537.36\" \\\\\n  -H \"Accept: text/plain\" -H \"Referer: https://finance.yahoo.com/\" \\\\\n  -w \"\\\\n---HTTP: %{http_code}\")",
       "Bash(CRUMB=\"Q6pZG6pyi3o\" && curl -sb /tmp/yf10.txt \\\\\n  \"https://query2.finance.yahoo.com/v7/finance/options/LULU?crumb=$CRUMB\" \\\\\n  -A \"Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36\" \\\\\n  2>&1 | head -c 300)",
       "Bash(CRUMB=\"Q6pZG6pyi3o\" && curl -sb /tmp/yf10.txt \\\\\n  \"https://query2.finance.yahoo.com/v7/finance/options/LULU?crumb=$CRUMB\" \\\\\n  -A \"Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36\" \\\\\n  -H \"Referer: https://finance.yahoo.com/\" \\\\\n  2>&1 | python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); r=d['optionChain']['result'][0]; print\\('price:', r['quote']['regularMarketPrice']\\); print\\('expiries:', len\\(r['expirationDates']\\)\\)\" 2>&1)",
-      "Bash(CRUMB=\"Q6pZG6pyi3o\" && curl -sb /tmp/yf10.txt \\\\\n  \"https://query2.finance.yahoo.com/v7/finance/options/LULU?crumb=$CRUMB\" \\\\\n  -A \"Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36\" \\\\\n  -H \"Referer: https://finance.yahoo.com/\" \\\\\n  2>&1 | head -c 200)"
+      "Bash(CRUMB=\"Q6pZG6pyi3o\" && curl -sb /tmp/yf10.txt \\\\\n  \"https://query2.finance.yahoo.com/v7/finance/options/LULU?crumb=$CRUMB\" \\\\\n  -A \"Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36\" \\\\\n  -H \"Referer: https://finance.yahoo.com/\" \\\\\n  2>&1 | head -c 200)",
+      "Bash(wc -l /Users/rutujabodhe/Downloads/go_projects/quarterly_results/*.go)",
+      "Bash(go test:*)"
     ]
   }
 }

@@ -665,19 +665,6 @@ func (e *Enricher) fetchPriceHistoryRange(symbol string, from, to time.Time) ([]
 	return out, nil
 }
 
-// closestPrice returns the most recent closing price at or before target.
-func closestPrice(points []pricePoint, target time.Time) (float64, bool) {
-	var result float64
-	found := false
-	for _, p := range points {
-		if p.Date.After(target) {
-			break
-		}
-		result = p.Close
-		found = true
-	}
-	return result, found
-}
 
 // fetchNasdaqEPSEstimate queries the Nasdaq earnings calendar for a specific date
 // and returns the consensus EPS estimate for the given symbol on that date.
@@ -720,13 +707,4 @@ func (e *Enricher) fetchNasdaqEPSEstimate(symbol string, date time.Time) (float6
 	return 0, fmt.Errorf("symbol %s not in calendar for %s", symbol, date.Format("2006-01-02"))
 }
 
-// ── Growth helpers ────────────────────────────────────────────────────────────
-
-// pctChange returns (newVal - oldVal) / |oldVal| * 100.
-func pctChange(oldVal, newVal float64) float64 {
-	if oldVal == 0 {
-		return 0
-	}
-	return (newVal - oldVal) / math.Abs(oldVal) * 100
-}
 
