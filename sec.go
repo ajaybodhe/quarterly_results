@@ -207,8 +207,8 @@ func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, m
 
 	for _, entries := range raw.Units {
 		for _, e := range entries {
-			if e.Form != "10-Q" {
-				continue // skip annual filings
+			if e.Form != "10-Q" && e.Form != "10-K" {
+				continue // skip non-quarterly forms (8-K, etc.)
 			}
 			// Skip YTD (cumulative) entries: only keep single-quarter periods.
 			// A fiscal quarter spans 75–105 days; YTD entries span 150+ days.

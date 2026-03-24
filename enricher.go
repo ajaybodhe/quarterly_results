@@ -70,6 +70,9 @@ type FinancialSummary struct {
 	// Stock reaction to last 4 quarterly earnings reports
 	EarningsReactions []EarningsReaction
 
+	// Macro events near the upcoming earnings date (±2 days)
+	MacroContext string
+
 	// Analyst ratings
 	ConsensusRating string
 	StrongBuy       int
@@ -103,6 +106,12 @@ type EarningsReaction struct {
 	// Pre/post earnings drift (calendar days, excluding announcement/reaction days)
 	Pre7Ret  *float64 // 7 days before announcement → day before announcement
 	Post7Ret *float64 // reaction day → 7 days after reaction day
+
+	// VIX closing level on the reaction day — high VIX = macro noise may have overwhelmed earnings signal
+	VIX float64
+
+	// Macro events near the announcement date (±2 days)
+	MacroContext string
 }
 
 // ForwardQuarter holds one future quarter EPS estimate from Nasdaq.
@@ -170,7 +179,7 @@ func NewEnricher() *Enricher {
 }
 
 // EnrichAll fetches financial summaries for all results concurrently (rate-limited).
-func (e *Enricher) EnrichAll(results []EarningsResult, calendarRows map[string]nasdaqCalendarRow) map[string]*FinancialSummary {
+func (e *Enricher) EnrichAll(results []EarningsResult, calendarRows map[string]nasdaqCalendarRow, macro *MacroCalendar) map[string]*FinancialSummary {
 	// Pre-load the SEC ticker map once (single HTTP call).
 	if err := e.secClient.LoadTickerMap(); err != nil {
 		logf("Warning: could not load SEC ticker map: %v", err)
@@ -190,7 +199,7 @@ func (e *Enricher) EnrichAll(results []EarningsResult, calendarRows map[string]n
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			summary := e.buildSummary(res, calendarRows[res.Symbol])
+			summary := e.buildSummary(res, calendarRows[res.Symbol], macro)
 
 			mu.Lock()
 			out[res.Symbol] = summary
@@ -202,7 +211,7 @@ func (e *Enricher) EnrichAll(results []EarningsResult, calendarRows map[string]n
 	return out
 }
 
-func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *FinancialSummary {
+func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro *MacroCalendar) *FinancialSummary {
 	s := &FinancialSummary{
 		Symbol:        res.Symbol,
 		EPSEstimate:   row.EPSForecast,
@@ -348,6 +357,9 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 		return s
 	}
 
+	// Fetch VIX history for reaction-day macro context (best-effort; failures are non-fatal).
+	vixPrices, _ := e.fetchPriceHistory("^VIX")
+
 	current := prices[len(prices)-1].Close
 	now := prices[len(prices)-1].Date
 	s.CurrentPrice = current
@@ -452,7 +464,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 			}
 		}
 
-		s.EarningsReactions = append(s.EarningsReactions, EarningsReaction{
+		rxn := EarningsReaction{
 			Period:           q.Period,
 			AnnouncementDate: q.FilingDate,
 			ReactionDay:      reactionDay.Format("2006-01-02"),
@@ -463,7 +475,23 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow) *Fina
 			RevenueActual:    q.Revenue,
 			Pre7Ret:          pre7Ret,
 			Post7Ret:         post7Ret,
-		})
+		}
+		// VIX on reaction day.
+		if vix, ok := closestPrice(vixPrices, reactionDay); ok && vix > 0 {
+			rxn.VIX = vix
+		}
+		// Macro events near this announcement.
+		if macro != nil {
+			nearby := macro.EventsNear(q.FilingDate, 2)
+			rxn.MacroContext = FormatMacroContext(nearby, q.FilingDate)
+		}
+		s.EarningsReactions = append(s.EarningsReactions, rxn)
+	}
+
+	// ── Macro context for upcoming earnings date ──────────────────────────────
+	if macro != nil {
+		nearby := macro.EventsNear(res.EarningsDate, 2)
+		s.MacroContext = FormatMacroContext(nearby, res.EarningsDate)
 	}
 
 	// ── Pre-earnings options snapshot ────────────────────────────────────────

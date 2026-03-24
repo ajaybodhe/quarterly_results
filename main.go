@@ -77,6 +77,9 @@ type EarningsResult struct {
 	AnalystBearish    int    `json:"analyst_bearish"` // Sell + StrongSell
 	AnalystTotal      int    `json:"analyst_total"`
 
+	// ── Macro context (scheduled events ±2 days of earnings date) ────────────
+	MacroContext string `json:"macro_context,omitempty"`
+
 	// ── Options setup (pre-earnings) ─────────────────────────────────────────
 	OptionsExpiry    string `json:"options_expiry,omitempty"`
 	ExpectedMove     string `json:"expected_move,omitempty"`
@@ -144,6 +147,10 @@ func main() {
 		return
 	}
 
+	// ── Step 2b: Load macro economic calendar ────────────────────────────────
+	logf("Loading macro economic calendar (FOMC + BLS schedule) ...")
+	macro := LoadMacroCalendar(from, to)
+
 	// ── Step 3: Build preliminary results for enricher input ─────────────────
 	preliminary := make([]EarningsResult, 0, len(qualified))
 	for _, e := range qualified {
@@ -160,7 +167,7 @@ func main() {
 	// ── Step 4: Enrich with financial summaries ───────────────────────────────
 	logf("Fetching financial summaries (EPS estimates, revenue history, trends) ...")
 	enricher := NewEnricher()
-	summaries := enricher.EnrichAll(preliminary, calMap)
+	summaries := enricher.EnrichAll(preliminary, calMap, macro)
 
 	// ── Step 5: Assemble final results ────────────────────────────────────────
 	var results []EarningsResult
@@ -243,6 +250,7 @@ func main() {
 		r.AnalystBearish = s.Sell + s.StrongSell
 		r.AnalystTotal = s.TotalRatings
 		r.EarningsReactions = s.EarningsReactions
+		r.MacroContext = s.MacroContext
 		if opt := s.Options; opt != nil {
 			r.OptionsExpiry = opt.Expiry
 			r.ExpectedMove = fmt.Sprintf("±$%.2f", opt.ExpectedMove)
@@ -289,12 +297,7 @@ func main() {
 		writeJSON(os.Stdout, results)
 	default:
 		writeTable(os.Stdout, results)
-		writeReturnsTable(os.Stdout, results)
-		writeEarningsReactionTable(os.Stdout, results)
-		writeOptionsTable(os.Stdout, results)
-		writeAnalystTable(os.Stdout, results)
-		writeInsiderTable(os.Stdout, results)
-		writeInstitutionalTable(os.Stdout, results)
+		writeStockCards(os.Stdout, results)
 	}
 }
 
