@@ -285,6 +285,9 @@ func main() {
 		if results[i].ResultDate != results[j].ResultDate {
 			return results[i].ResultDate < results[j].ResultDate
 		}
+		if results[i].MarketCapB != results[j].MarketCapB {
+			return results[i].MarketCapB > results[j].MarketCapB
+		}
 		return results[i].Symbol < results[j].Symbol
 	})
 
@@ -296,7 +299,6 @@ func main() {
 	case "json":
 		writeJSON(os.Stdout, results)
 	default:
-		writeTable(os.Stdout, results)
 		writeStockCards(os.Stdout, results)
 	}
 }

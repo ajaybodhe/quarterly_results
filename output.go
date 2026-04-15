@@ -8,91 +8,6 @@ import (
 	"text/tabwriter"
 )
 
-func writeTable(w io.Writer, results []EarningsResult) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SYMBOL\tCOMPANY\tMKT_CAP_B\tRESULT_DATE\tFISCAL_Q\t"+
-		"EPS_EST\tEPS_PREV_QTR\tEPS_QoQ\tEPS_PREV_YR\tEPS_YoY\t"+
-		"REV_EST\tREV_PREV_QTR\tREV_QoQ\tREV_PREV_YR\tREV_YoY\t"+
-		"PE_TTM\tPE_FWD\tPS\tMACRO")
-	for _, r := range results {
-		epsEst := "N/A"
-		if r.EPSEstimate != 0 {
-			epsEst = fmt.Sprintf("$%.2f", r.EPSEstimate)
-		}
-		epsPrev := "N/A"
-		if r.EPSLastYear != 0 {
-			epsPrev = fmt.Sprintf("$%.2f", r.EPSLastYear)
-		}
-		macroCol := r.MacroContext
-		if macroCol == "" {
-			macroCol = "—"
-		}
-		fmt.Fprintf(tw, "%s\t%s\t$%.1f\t%s (%s)\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.Symbol,
-			truncate(r.CompanyName, 28),
-			r.MarketCapB,
-			r.ResultDate,
-			labelTime(r.EarningsTime),
-			r.FiscalQuarter,
-			epsEst,
-			r.EPSPrevQtr,
-			r.EPSQoQ,
-			epsPrev,
-			r.EPSYoYPct,
-			r.RevEstimate,
-			r.RevPrevQtr,
-			r.RevQoQ,
-			r.RevPrevYr,
-			r.RevenueYoYPct,
-			r.PE_TTM,
-			r.PE_Forward,
-			r.PS,
-			macroCol,
-		)
-	}
-	tw.Flush()
-
-	// Print quarterly history detail block for each result.
-	if len(results) > 0 && len(results[0].History) > 0 {
-		fmt.Fprintln(w, "\n── Quarterly History (oldest → newest) ──────────────────────────────────")
-		for _, r := range results {
-			if len(r.History) == 0 {
-				continue
-			}
-			fmt.Fprintf(w, "\n%s  %s\n", r.Symbol, r.CompanyName)
-			htw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(htw, "  PERIOD\tREVENUE_B\tEPS\tREV_QoQ\tEPS_QoQ")
-			for i, q := range r.History {
-				revQoQ, epsQoQ := "—", "—"
-				if i > 0 {
-					prev := r.History[i-1]
-					if prev.Revenue != 0 {
-						revQoQ = fmtPct(ptr(pctChange(prev.Revenue, q.Revenue)))
-					}
-					if prev.EPS != 0 {
-						epsQoQ = fmtPct(ptr(pctChange(prev.EPS, q.EPS)))
-					}
-				}
-				fmt.Fprintf(htw, "  %s\t$%.2f\t$%.2f\t%s\t%s\n",
-					q.Period,
-					q.Revenue/1e9,
-					q.EPS,
-					revQoQ,
-					epsQoQ,
-				)
-			}
-			htw.Flush()
-
-			if len(r.ForwardEPS) > 0 {
-				fmt.Fprintf(w, "  Forward EPS estimates:\n")
-				for _, fq := range r.ForwardEPS[:min(3, len(r.ForwardEPS))] {
-					fmt.Fprintf(w, "    %-12s  consensus $%.2f  (range $%.2f–$%.2f, %d ests)\n",
-						fq.FiscalEnd, fq.ConsensusEPS, fq.LowEPS, fq.HighEPS, fq.NumberOfEstimates)
-				}
-			}
-		}
-	}
-}
 
 func writeCSV(w io.Writer, results []EarningsResult) {
 	cw := csv.NewWriter(w)
@@ -203,11 +118,22 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 	if len(r.History) > 0 {
 		fmt.Fprintln(w, "\n  Quarterly History:")
 		htw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(htw, "    PERIOD\tREVENUE_B\tEPS\tREV_QoQ\tEPS_QoQ")
-		for i, q := range r.History {
+		fmt.Fprintln(htw, "    PERIOD\tREVENUE_B\tEPS\tREV_QoQ\tEPS_QoQ\tREV_YoY\tEPS_YoY")
+		// Display only the last 5 quarters; the earlier ones serve as YoY anchors.
+		history := r.History
+		displayFrom := 0
+		if len(history) > 5 {
+			displayFrom = len(history) - 5
+		}
+		for i := displayFrom; i < len(history); i++ {
+			q := history[i]
+			period := q.Period
+			if q.PeriodStart != "" {
+				period = q.PeriodStart + " – " + q.Period
+			}
 			revQoQ, epsQoQ := "—", "—"
 			if i > 0 {
-				prev := r.History[i-1]
+				prev := history[i-1]
 				if prev.Revenue != 0 {
 					revQoQ = fmtPct(ptr(pctChange(prev.Revenue, q.Revenue)))
 				}
@@ -215,8 +141,18 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 					epsQoQ = fmtPct(ptr(pctChange(prev.EPS, q.EPS)))
 				}
 			}
-			fmt.Fprintf(htw, "    %s\t$%.2f\t$%.2f\t%s\t%s\n",
-				q.Period, q.Revenue/1e9, q.EPS, revQoQ, epsQoQ)
+			revYoY, epsYoY := "—", "—"
+			if i >= 4 {
+				yoy := history[i-4]
+				if yoy.Revenue != 0 {
+					revYoY = fmtPct(ptr(pctChange(yoy.Revenue, q.Revenue)))
+				}
+				if yoy.EPS != 0 {
+					epsYoY = fmtPct(ptr(pctChange(yoy.EPS, q.EPS)))
+				}
+			}
+			fmt.Fprintf(htw, "    %s\t$%.2f\t$%.2f\t%s\t%s\t%s\t%s\n",
+				period, q.Revenue/1e9, q.EPS, revQoQ, epsQoQ, revYoY, epsYoY)
 		}
 		htw.Flush()
 		if len(r.ForwardEPS) > 0 {
@@ -256,7 +192,7 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 	if len(r.EarningsReactions) > 0 {
 		fmt.Fprintln(w, "\n  Past Earnings Reactions:")
 		rtw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(rtw, "    QUARTER\tANNOUNCED\tRXN_DAY\tPRIOR_CLS\tRXN_CLS\tPRE7\tRXN_RET\tPOST7\tEPS_EST\tEPS_ACT\tEPS_BEAT\tREV_ACT\tVIX\tMACRO")
+		fmt.Fprintln(rtw, "    QUARTER\tANNOUNCED\tRXN_DAY\tPRIOR_CLS\tRXN_OPEN\tGAP_RET\tRXN_CLS\tDAY_RET\tPRE7\tPOST7\tEPS_EST\tEPS_ACT\tEPS_BEAT\tREV_ACT\tVIX\tMACRO")
 		for _, rxn := range r.EarningsReactions {
 			epsEst := "N/A"
 			if rxn.EPSEstimate != 0 {
@@ -270,6 +206,12 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 			if rxn.RevenueActual != 0 {
 				revAct = fmt.Sprintf("$%.2fB", rxn.RevenueActual/1e9)
 			}
+			rxnOpenStr := "N/A"
+			gapRetStr := "N/A"
+			if rxn.ReactionOpen > 0 {
+				rxnOpenStr = fmt.Sprintf("$%.2f", rxn.ReactionOpen)
+				gapRetStr = fmtPct(&rxn.GapRetPct)
+			}
 			vixStr := "N/A"
 			if rxn.VIX > 0 {
 				vixStr = fmt.Sprintf("%.1f", rxn.VIX)
@@ -278,10 +220,11 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 			if macroStr == "" {
 				macroStr = "—"
 			}
-			fmt.Fprintf(rtw, "    %s\t%s\t%s\t$%.2f\t$%.2f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(rtw, "    %s\t%s\t%s\t$%.2f\t%s\t%s\t$%.2f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				rxn.Period, rxn.AnnouncementDate, rxn.ReactionDay,
-				rxn.PriorClose, rxn.ReactionClose,
-				fmtPct(rxn.Pre7Ret), fmtPct(&rxn.RetPct), fmtPct(rxn.Post7Ret),
+				rxn.PriorClose, rxnOpenStr, gapRetStr, rxn.ReactionClose,
+				fmtPct(&rxn.RetPct),
+				fmtPct(rxn.Pre7Ret), fmtPct(rxn.Post7Ret),
 				epsEst, epsAct, fmtPct(rxn.EPSBeatPct), revAct,
 				vixStr, macroStr,
 			)

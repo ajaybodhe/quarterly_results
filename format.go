@@ -32,6 +32,18 @@ func closestPrice(points []pricePoint, target time.Time) (float64, bool) {
 	return result, found
 }
 
+// openOnDate returns the opening price for the exact calendar date of target.
+// Returns 0 if no entry matches (e.g. data unavailable or market closed).
+func openOnDate(points []pricePoint, target time.Time) float64 {
+	targetDate := target.Format("2006-01-02")
+	for _, p := range points {
+		if p.Date.Format("2006-01-02") == targetDate {
+			return p.Open
+		}
+	}
+	return 0
+}
+
 // ── String formatting helpers ─────────────────────────────────────────────────
 
 // fmtPct formats a *float64 percentage pointer as "+8.7%" / "-3.2%" / "N/A".

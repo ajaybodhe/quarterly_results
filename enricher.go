@@ -94,8 +94,10 @@ type EarningsReaction struct {
 	AnnouncementDate string  // 8-K filing date = earnings announcement date (YYYY-MM-DD)
 	ReactionDay      string  // next working day after announcement (YYYY-MM-DD)
 	PriorClose       float64 // closing price the day before announcement
+	ReactionOpen     float64 // opening price on reaction day (first price after market digests earnings)
 	ReactionClose    float64 // closing price on reaction day
-	RetPct           float64 // pct change: (ReactionClose - PriorClose) / PriorClose * 100
+	GapRetPct        float64 // gap return: (ReactionOpen - PriorClose) / PriorClose * 100
+	RetPct           float64 // full-day return: (ReactionClose - PriorClose) / PriorClose * 100
 
 	// Reported vs estimated
 	EPSActual      float64  // actual reported EPS (from SEC EDGAR)
@@ -123,9 +125,10 @@ type ForwardQuarter struct {
 	NumberOfEstimates  int
 }
 
-// pricePoint is a single end-of-day closing price.
+// pricePoint is a single trading day's OHLC snapshot.
 type pricePoint struct {
 	Date  time.Time
+	Open  float64
 	Close float64
 }
 
@@ -135,6 +138,7 @@ type nasdaqHistoricalResponse struct {
 		TradesTable struct {
 			Rows []struct {
 				Date  string `json:"date"`  // "MM/DD/YYYY"
+				Open  string `json:"open"`  // "$123.45"
 				Close string `json:"close"` // "$123.45"
 			} `json:"rows"`
 		} `json:"tradesTable"`
@@ -445,6 +449,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		if !okPrior || !okReact || priorClose == 0 {
 			continue
 		}
+		reactionOpen := openOnDate(prices, reactionDay) // 0 if unavailable
 
 		// Pre-earnings drift: 7 calendar days before announcement → day before announcement.
 		var pre7Ret *float64
@@ -469,7 +474,9 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			AnnouncementDate: q.FilingDate,
 			ReactionDay:      reactionDay.Format("2006-01-02"),
 			PriorClose:       priorClose,
+			ReactionOpen:     reactionOpen,
 			ReactionClose:    reactionClose,
+			GapRetPct:        pctChange(priorClose, reactionOpen),
 			RetPct:           pctChange(priorClose, reactionClose),
 			EPSActual:        q.EPS,
 			RevenueActual:    q.Revenue,
@@ -684,7 +691,9 @@ func (e *Enricher) fetchPriceHistoryRange(symbol string, from, to time.Time) ([]
 		if err != nil || price <= 0 {
 			continue
 		}
-		out = append(out, pricePoint{Date: d, Close: price})
+		o := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(row.Open), "$", ""), ",", "")
+		openPrice, _ := strconv.ParseFloat(o, 64)
+		out = append(out, pricePoint{Date: d, Open: openPrice, Close: price})
 	}
 	// Nasdaq returns newest-first; reverse to oldest-first.
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {

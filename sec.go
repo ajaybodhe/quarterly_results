@@ -16,10 +16,11 @@ import (
 
 // QuarterActual holds one quarter of actual reported figures.
 type QuarterActual struct {
-	Period     string  // YYYY-MM-DD (fiscal quarter end)
-	Revenue    float64 // in USD
-	EPS        float64 // diluted EPS
-	FilingDate string  // YYYY-MM-DD when the 10-Q was filed with SEC (proxy for earnings date)
+	PeriodStart string  // YYYY-MM-DD (fiscal quarter start)
+	Period      string  // YYYY-MM-DD (fiscal quarter end)
+	Revenue     float64 // in USD
+	EPS         float64 // diluted EPS
+	FilingDate  string  // YYYY-MM-DD when the 10-Q was filed with SEC (proxy for earnings date)
 }
 
 // SECClient fetches quarterly financial data from SEC EDGAR's XBRL API.
@@ -82,16 +83,17 @@ func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error
 
 	// Fetch EPS and revenue concurrently.
 	type conceptResult struct {
-		data        map[string]float64
-		filingDates map[string]string // period → filing date
-		err         error
+		data         map[string]float64
+		filingDates  map[string]string // period-end → filing date
+		periodStarts map[string]string // period-end → period start date
+		err          error
 	}
 	epsCh := make(chan conceptResult, 1)
 	revCh := make(chan conceptResult, 1)
 
 	go func() {
-		d, fd, err := c.fetchConcept(cik, "EarningsPerShareDiluted")
-		epsCh <- conceptResult{d, fd, err}
+		d, fd, ps, err := c.fetchConcept(cik, "EarningsPerShareDiluted")
+		epsCh <- conceptResult{d, fd, ps, err}
 	}()
 	go func() {
 		// Revenue concept names differ by sector/reporting standard. Try in order.
@@ -102,13 +104,13 @@ func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error
 			"SalesRevenueNet",
 			"SalesRevenueGoodsNet",
 		} {
-			d, fd, err := c.fetchConcept(cik, name)
+			d, fd, ps, err := c.fetchConcept(cik, name)
 			if err == nil && len(d) > 0 {
-				revCh <- conceptResult{d, fd, nil}
+				revCh <- conceptResult{d, fd, ps, nil}
 				return
 			}
 		}
-		revCh <- conceptResult{nil, nil, fmt.Errorf("no revenue concept found")}
+		revCh <- conceptResult{nil, nil, nil, fmt.Errorf("no revenue concept found")}
 	}()
 
 	epsRes := <-epsCh
@@ -129,16 +131,24 @@ func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error
 		if fd, ok := epsRes.filingDates[period]; ok {
 			merged[period].FilingDate = fd
 		}
+		if ps, ok := epsRes.periodStarts[period]; ok {
+			merged[period].PeriodStart = ps
+		}
 	}
 	for period, v := range revRes.data {
 		if _, ok := merged[period]; !ok {
 			merged[period] = &QuarterActual{Period: period}
 		}
 		merged[period].Revenue = v
-		// Fill FilingDate from revenue if EPS didn't provide it.
+		// Fill FilingDate and PeriodStart from revenue if EPS didn't provide them.
 		if merged[period].FilingDate == "" {
 			if fd, ok := revRes.filingDates[period]; ok {
 				merged[period].FilingDate = fd
+			}
+		}
+		if merged[period].PeriodStart == "" {
+			if ps, ok := revRes.periodStarts[period]; ok {
+				merged[period].PeriodStart = ps
 			}
 		}
 	}
@@ -150,9 +160,9 @@ func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Period < sorted[j].Period
 	})
-	// Keep only the last 5 quarters.
-	if len(sorted) > 5 {
-		sorted = sorted[len(sorted)-5:]
+	// Keep 9 quarters: 5 to display + 4 prior-year quarters needed for YoY comparison.
+	if len(sorted) > 9 {
+		sorted = sorted[len(sorted)-9:]
 	}
 	return sorted, nil
 }
@@ -167,43 +177,44 @@ type secConceptEntry struct {
 }
 
 // fetchConcept fetches quarterly values for one SEC XBRL concept.
-// Returns a map of period-end-date → most-recently-filed value,
-// and a second map of period-end-date → filing date string.
-func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, map[string]string, error) {
+// Returns: values map (period-end → value), filing dates map (period-end → filed date),
+// period starts map (period-end → period start date).
+func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, map[string]string, map[string]string, error) {
 	url := fmt.Sprintf(
 		"https://data.sec.gov/api/xbrl/companyconcept/CIK%010d/us-gaap/%s.json",
 		cik, concept,
 	)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	req.Header.Set("User-Agent", secUserAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("HTTP GET: %w", err)
+		return nil, nil, nil, fmt.Errorf("HTTP GET: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil, fmt.Errorf("concept %s not found (404)", concept)
+		return nil, nil, nil, fmt.Errorf("concept %s not found (404)", concept)
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body)[:min(80, len(body))])
+		return nil, nil, nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body)[:min(80, len(body))])
 	}
 
 	var raw struct {
 		Units map[string][]secConceptEntry `json:"units"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, nil, fmt.Errorf("decode: %w", err)
+		return nil, nil, nil, fmt.Errorf("decode: %w", err)
 	}
 
 	// Use the first unit key (USD for revenue, USD/shares for EPS).
 	result := make(map[string]float64)
-	filingDates := make(map[string]string) // period → most recent filed date
+	filingDates  := make(map[string]string) // period-end → most recent filed date
+	periodStarts := make(map[string]string) // period-end → period start date
 
 	for _, entries := range raw.Units {
 		for _, e := range entries {
@@ -237,12 +248,15 @@ func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, m
 			if prev, ok := filingDates[e.End]; !ok || e.Filed > prev {
 				result[e.End] = e.Val
 				filingDates[e.End] = e.Filed
+				if e.Start != "" {
+					periodStarts[e.End] = e.Start
+				}
 			}
 		}
 		break // only process the first unit type
 	}
 
-	return result, filingDates, nil
+	return result, filingDates, periodStarts, nil
 }
 
 // ── Insider trading (Form 4) ──────────────────────────────────────────────────
