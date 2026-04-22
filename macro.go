@@ -2,9 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
-	"net/http"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -61,98 +58,96 @@ var fomcMinutesDates = []MacroEvent{
 	{"2026-11-18", "FOMC Minutes", "Fed meeting minutes", "medium"},
 }
 
-// fetchBLSEvents scrapes the BLS news release schedule for a given year.
-// Returns NFP, CPI, PPI, and Jobless Claims release dates.
-// Source: https://www.bls.gov/schedule/YYYY/home.htm
-func fetchBLSEvents(year int) ([]MacroEvent, error) {
-	url := fmt.Sprintf("https://www.bls.gov/schedule/%d/home.htm", year)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("BLS schedule HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return parseBLSSchedule(string(body), year), nil
+// blsNFPDates are the BLS Employment Situation (Non-Farm Payrolls) release dates.
+// BLS website is behind Akamai WAF and blocks programmatic access, so dates are hardcoded.
+// Source: https://www.bls.gov/schedule/YYYY/home.htm  (update annually)
+var blsNFPDates = []MacroEvent{
+	// 2025
+	{"2025-01-10", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-02-07", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-03-07", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-04-04", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-05-02", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-06-06", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-07-03", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-08-01", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-09-05", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-10-03", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-11-07", "NFP", "Non-Farm Payrolls", "high"},
+	{"2025-12-05", "NFP", "Non-Farm Payrolls", "high"},
+	// 2026
+	{"2026-01-09", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-02-06", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-03-06", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-04-03", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-05-08", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-06-05", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-07-02", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-08-07", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-09-04", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-10-02", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-11-06", "NFP", "Non-Farm Payrolls", "high"},
+	{"2026-12-04", "NFP", "Non-Farm Payrolls", "high"},
 }
 
-// parseBLSSchedule extracts MacroEvents from BLS schedule HTML.
-// BLS uses table rows like: <td>01/10/2025</td> ... Employment Situation ...
-func parseBLSSchedule(html string, year int) []MacroEvent {
-	// Match rows with a date and a known release name.
-	dateRe := regexp.MustCompile(`(\d{2}/\d{2}/\d{4})`)
-	var events []MacroEvent
+// blsCPIDates are the BLS Consumer Price Index release dates.
+var blsCPIDates = []MacroEvent{
+	// 2025
+	{"2025-01-15", "CPI", "Consumer Price Index", "high"},
+	{"2025-02-12", "CPI", "Consumer Price Index", "high"},
+	{"2025-03-12", "CPI", "Consumer Price Index", "high"},
+	{"2025-04-10", "CPI", "Consumer Price Index", "high"},
+	{"2025-05-13", "CPI", "Consumer Price Index", "high"},
+	{"2025-06-11", "CPI", "Consumer Price Index", "high"},
+	{"2025-07-11", "CPI", "Consumer Price Index", "high"},
+	{"2025-08-12", "CPI", "Consumer Price Index", "high"},
+	{"2025-09-10", "CPI", "Consumer Price Index", "high"},
+	{"2025-10-15", "CPI", "Consumer Price Index", "high"},
+	{"2025-11-12", "CPI", "Consumer Price Index", "high"},
+	{"2025-12-10", "CPI", "Consumer Price Index", "high"},
+	// 2026
+	{"2026-01-15", "CPI", "Consumer Price Index", "high"},
+	{"2026-02-11", "CPI", "Consumer Price Index", "high"},
+	{"2026-03-11", "CPI", "Consumer Price Index", "high"},
+	{"2026-04-10", "CPI", "Consumer Price Index", "high"},
+	{"2026-05-12", "CPI", "Consumer Price Index", "high"},
+	{"2026-06-10", "CPI", "Consumer Price Index", "high"},
+	{"2026-07-14", "CPI", "Consumer Price Index", "high"},
+	{"2026-08-12", "CPI", "Consumer Price Index", "high"},
+	{"2026-09-10", "CPI", "Consumer Price Index", "high"},
+	{"2026-10-13", "CPI", "Consumer Price Index", "high"},
+	{"2026-11-12", "CPI", "Consumer Price Index", "high"},
+	{"2026-12-10", "CPI", "Consumer Price Index", "high"},
+}
 
-	// Identify which report each date belongs to by scanning the surrounding text.
-	// BLS schedule tables have sections per report. We find each report section header
-	// and collect dates until the next header.
-	type reportDef struct {
-		pattern string
-		name    string
-		detail  string
-		impact  string
-	}
-	reports := []reportDef{
-		{"Employment Situation", "NFP", "Non-Farm Payrolls", "high"},
-		{"Consumer Price Index", "CPI", "Consumer Price Index", "high"},
-		{"Producer Price Index", "PPI", "Producer Price Index", "medium"},
-		{"Unemployment Insurance Weekly Claims", "Jobless Claims", "Initial Jobless Claims", "medium"},
-		{"Real Earnings", "Real Earnings", "Real Earnings", "medium"},
-		{"Employment Cost Index", "ECI", "Employment Cost Index", "medium"},
-	}
-
-	for _, rpt := range reports {
-		// Find the section for this report type.
-		idx := strings.Index(html, rpt.pattern)
-		if idx < 0 {
-			continue
-		}
-		// Extract the next ~2000 chars after the header (enough for one report's table).
-		end := idx + 2000
-		if end > len(html) {
-			end = len(html)
-		}
-		section := html[idx:end]
-
-		// Find the next report header to limit scope.
-		for _, other := range reports {
-			if other.pattern == rpt.pattern {
-				continue
-			}
-			if i := strings.Index(section[50:], other.pattern); i > 0 {
-				if i+50 < end-idx {
-					section = section[:i+50]
-				}
-			}
-		}
-
-		matches := dateRe.FindAllString(section, -1)
-		for _, m := range matches {
-			t, err := time.Parse("01/02/2006", m)
-			if err != nil || t.Year() != year {
-				continue
-			}
-			events = append(events, MacroEvent{
-				Date:   t.Format("2006-01-02"),
-				Name:   rpt.name,
-				Detail: rpt.detail,
-				Impact: rpt.impact,
-			})
-		}
-	}
-	return events
+// blsPPIDates are the BLS Producer Price Index release dates.
+var blsPPIDates = []MacroEvent{
+	// 2025
+	{"2025-01-14", "PPI", "Producer Price Index", "medium"},
+	{"2025-02-13", "PPI", "Producer Price Index", "medium"},
+	{"2025-03-13", "PPI", "Producer Price Index", "medium"},
+	{"2025-04-11", "PPI", "Producer Price Index", "medium"},
+	{"2025-05-15", "PPI", "Producer Price Index", "medium"},
+	{"2025-06-12", "PPI", "Producer Price Index", "medium"},
+	{"2025-07-15", "PPI", "Producer Price Index", "medium"},
+	{"2025-08-14", "PPI", "Producer Price Index", "medium"},
+	{"2025-09-11", "PPI", "Producer Price Index", "medium"},
+	{"2025-10-16", "PPI", "Producer Price Index", "medium"},
+	{"2025-11-13", "PPI", "Producer Price Index", "medium"},
+	{"2025-12-11", "PPI", "Producer Price Index", "medium"},
+	// 2026
+	{"2026-01-16", "PPI", "Producer Price Index", "medium"},
+	{"2026-02-12", "PPI", "Producer Price Index", "medium"},
+	{"2026-03-12", "PPI", "Producer Price Index", "medium"},
+	{"2026-04-14", "PPI", "Producer Price Index", "medium"},
+	{"2026-05-13", "PPI", "Producer Price Index", "medium"},
+	{"2026-06-11", "PPI", "Producer Price Index", "medium"},
+	{"2026-07-15", "PPI", "Producer Price Index", "medium"},
+	{"2026-08-13", "PPI", "Producer Price Index", "medium"},
+	{"2026-09-11", "PPI", "Producer Price Index", "medium"},
+	{"2026-10-14", "PPI", "Producer Price Index", "medium"},
+	{"2026-11-13", "PPI", "Producer Price Index", "medium"},
+	{"2026-12-11", "PPI", "Producer Price Index", "medium"},
 }
 
 // MacroCalendar holds all known macro events, indexed by date for fast lookup.
@@ -160,29 +155,16 @@ type MacroCalendar struct {
 	events []MacroEvent
 }
 
-// LoadMacroCalendar fetches BLS events for all years in the date range and combines
-// with hardcoded FOMC dates.
+// LoadMacroCalendar builds the macro event calendar from hardcoded FOMC and BLS dates.
+// BLS dates (NFP, CPI, PPI) are hardcoded because bls.gov blocks programmatic access
+// via Akamai WAF. Update the blsNFP/CPI/PPI slices in macro.go each January.
 func LoadMacroCalendar(from, to time.Time) *MacroCalendar {
 	cal := &MacroCalendar{}
-
-	// Add hardcoded FOMC dates.
 	cal.events = append(cal.events, fomcDates...)
 	cal.events = append(cal.events, fomcMinutesDates...)
-
-	// Fetch BLS schedule for each year covered by the range.
-	years := map[int]bool{}
-	for d := from; !d.After(to.AddDate(0, 0, 7)); d = d.AddDate(0, 0, 1) {
-		years[d.Year()] = true
-	}
-	for yr := range years {
-		evts, err := fetchBLSEvents(yr)
-		if err != nil {
-			logf("Warning: could not fetch BLS schedule for %d: %v", yr, err)
-			continue
-		}
-		cal.events = append(cal.events, evts...)
-	}
-
+	cal.events = append(cal.events, blsNFPDates...)
+	cal.events = append(cal.events, blsCPIDates...)
+	cal.events = append(cal.events, blsPPIDates...)
 	return cal
 }
 

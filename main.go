@@ -60,6 +60,8 @@ type EarningsResult struct {
 	InstActivity string `json:"inst_activity"` // "Net Buyer" / "Net Seller" / "No Activity"
 	InstOwn      string `json:"inst_own"`      // current % of shares held by institutions
 	InstTrans    string `json:"inst_trans"`    // quarter-over-quarter change in institutional %
+	ShortFloat   string `json:"short_float"`   // short interest as % of float
+	ShortRatio   string `json:"short_ratio"`   // days-to-cover
 
 	// ── Insider trading (last 3 months) ──────────────────────────────────────
 	InsiderActivity string `json:"insider_activity"` // "Net Buyer" / "Net Seller" / "No Activity"
@@ -76,6 +78,16 @@ type EarningsResult struct {
 	AnalystNeutral    int    `json:"analyst_neutral"` // Hold
 	AnalystBearish    int    `json:"analyst_bearish"` // Sell + StrongSell
 	AnalystTotal      int    `json:"analyst_total"`
+
+	// ── Derived signals ──────────────────────────────────────────────────────
+	Hi52               string `json:"hi_52,omitempty"`
+	Lo52               string `json:"lo_52,omitempty"`
+	PctFrom52Hi        string `json:"pct_from_52hi,omitempty"`
+	PctFrom52Lo        string `json:"pct_from_52lo,omitempty"`
+	RSI14              string `json:"rsi14,omitempty"`
+	ImpliedVsHistRatio string `json:"implied_vs_hist_ratio,omitempty"`
+	BeatRate           string `json:"beat_rate,omitempty"`
+	AvgBeatPct         string `json:"avg_beat_pct,omitempty"`
 
 	// ── Macro context (scheduled events ±2 days of earnings date) ────────────
 	MacroContext string `json:"macro_context,omitempty"`
@@ -103,14 +115,26 @@ type EarningsResult struct {
 }
 
 func main() {
-	fromStr := flag.String("from", "", "Start of date range (YYYY-MM-DD) [required]")
-	toStr := flag.String("to", "", "End of date range (YYYY-MM-DD) [required]")
+	fromStr := flag.String("from", "", "Start of date range (YYYY-MM-DD); optional when --symbol is set")
+	toStr := flag.String("to", "", "End of date range (YYYY-MM-DD); optional when --symbol is set")
 	outputFmt := flag.String("output", "table", "Output format: table | csv | json")
-	minCapB := flag.Float64("min-cap-b", defaultMinMarketCap/1e9, "Minimum market cap in billions USD")
+	minCapB := flag.Float64("min-cap-b", defaultMinMarketCap/1e9, "Minimum market cap in billions USD (default 10)")
+	symbolFlag := flag.String("symbol", "", "Single stock symbol to analyse (skips market-cap filter; from/to optional)")
 	flag.Parse()
 
+	// Resolve date range.
+	// When --symbol is given without dates, default to today → today+90 days.
+	if *fromStr == "" && *symbolFlag != "" {
+		*fromStr = time.Now().Format("2006-01-02")
+	}
+	if *toStr == "" && *symbolFlag != "" {
+		*toStr = time.Now().AddDate(0, 0, 90).Format("2006-01-02")
+	}
+
 	if *fromStr == "" || *toStr == "" {
-		fmt.Fprintf(os.Stderr, "Usage: %s --from YYYY-MM-DD --to YYYY-MM-DD [flags]\n\nFlags:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage:\n")
+		fmt.Fprintf(os.Stderr, "  %s --from YYYY-MM-DD --to YYYY-MM-DD [flags]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --symbol TSLA [flags]\n\nFlags:\n", os.Args[0])
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -128,6 +152,7 @@ func main() {
 	}
 
 	minCap := *minCapB * 1e9
+	filterSymbol := strings.ToUpper(strings.TrimSpace(*symbolFlag))
 
 	// ── Step 1: Fetch earnings calendar ─────────────────────────────────────
 	logf("Fetching earnings calendar from Nasdaq.com (%s → %s) ...", *fromStr, *toStr)
@@ -135,16 +160,31 @@ func main() {
 	events, calMap := nc.FetchEarningsCalendar(from, to)
 	logf("Total events fetched: %d", len(events))
 
-	// ── Step 2: Filter by market cap ─────────────────────────────────────────
+	// ── Step 2: Filter by symbol or market cap ────────────────────────────────
 	var qualified []EarningsEvent
-	for _, e := range events {
-		if e.MarketCap >= minCap {
-			qualified = append(qualified, e)
+	if filterSymbol != "" {
+		for _, e := range events {
+			if strings.ToUpper(e.Symbol) == filterSymbol {
+				qualified = append(qualified, e)
+				break
+			}
 		}
-	}
-	logf("Qualifying (market cap > $%.0fB): %d", *minCapB, len(qualified))
-	if len(qualified) == 0 {
-		return
+		if len(qualified) == 0 {
+			// Symbol not found in calendar window — synthesise a minimal entry so
+			// enrichment still runs (EarningsDate will be empty).
+			logf("Symbol %s not found in earnings calendar for %s→%s; running enrichment without earnings date.", filterSymbol, *fromStr, *toStr)
+			qualified = []EarningsEvent{{Symbol: filterSymbol}}
+		}
+	} else {
+		for _, e := range events {
+			if e.MarketCap >= minCap {
+				qualified = append(qualified, e)
+			}
+		}
+		logf("Qualifying (market cap > $%.0fB): %d", *minCapB, len(qualified))
+		if len(qualified) == 0 {
+			return
+		}
 	}
 
 	// ── Step 2b: Load macro economic calendar ────────────────────────────────
@@ -218,10 +258,22 @@ func main() {
 			r.InstActivity = s.Institutional.Activity
 			r.InstOwn = fmt.Sprintf("%.2f%%", s.Institutional.InstOwn)
 			r.InstTrans = fmtPct(&s.Institutional.InstTrans)
+			if s.Institutional.ShortFloat > 0 {
+				r.ShortFloat = fmt.Sprintf("%.2f%%", s.Institutional.ShortFloat)
+			} else {
+				r.ShortFloat = "N/A"
+			}
+			if s.Institutional.ShortRatio > 0 {
+				r.ShortRatio = fmt.Sprintf("%.1fd", s.Institutional.ShortRatio)
+			} else {
+				r.ShortRatio = "N/A"
+			}
 		} else {
 			r.InstActivity = "N/A"
 			r.InstOwn = "N/A"
 			r.InstTrans = "N/A"
+			r.ShortFloat = "N/A"
+			r.ShortRatio = "N/A"
 		}
 		if s.Insider != nil {
 			r.InsiderActivity = s.Insider.Activity
@@ -251,6 +303,32 @@ func main() {
 		r.AnalystTotal = s.TotalRatings
 		r.EarningsReactions = s.EarningsReactions
 		r.MacroContext = s.MacroContext
+
+		// Derived signals
+		if s.Hi52 > 0 {
+			r.Hi52 = fmt.Sprintf("$%.2f", s.Hi52)
+			r.Lo52 = fmt.Sprintf("$%.2f", s.Lo52)
+			r.PctFrom52Hi = fmtPct(s.PctFrom52Hi)
+			r.PctFrom52Lo = fmtPct(s.PctFrom52Lo)
+		} else {
+			r.Hi52, r.Lo52, r.PctFrom52Hi, r.PctFrom52Lo = "N/A", "N/A", "N/A", "N/A"
+		}
+		if s.RSI14 != nil {
+			r.RSI14 = fmt.Sprintf("%.1f", *s.RSI14)
+		} else {
+			r.RSI14 = "N/A"
+		}
+		if s.ImpliedVsHistRatio != nil {
+			r.ImpliedVsHistRatio = fmt.Sprintf("%.2fx", *s.ImpliedVsHistRatio)
+		} else {
+			r.ImpliedVsHistRatio = "N/A"
+		}
+		if s.BeatRate != nil {
+			r.BeatRate = fmt.Sprintf("%.0f%%", *s.BeatRate*100)
+			r.AvgBeatPct = fmtPct(s.AvgBeatPct)
+		} else {
+			r.BeatRate, r.AvgBeatPct = "N/A", "N/A"
+		}
 		if opt := s.Options; opt != nil {
 			r.OptionsExpiry = opt.Expiry
 			r.ExpectedMove = fmt.Sprintf("±$%.2f", opt.ExpectedMove)

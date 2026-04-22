@@ -178,10 +178,16 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 		bullPct, neutPct, bearPct)
 
 	// ── Institutional & Insider ──────────────────────────────────────────────
-	fmt.Fprintf(w, "Inst     Activity %-12s  Own %-8s  QoQ %s\n",
-		r.InstActivity, r.InstOwn, r.InstTrans)
+	fmt.Fprintf(w, "Inst     Activity %-12s  Own %-8s  QoQ %-8s  Short %-8s  DaysCover %s\n",
+		r.InstActivity, r.InstOwn, r.InstTrans, r.ShortFloat, r.ShortRatio)
 	fmt.Fprintf(w, "Insider  Activity %-12s  Buy %-8s  Sell %-8s  Net %-8s  Filings %d\n",
 		r.InsiderActivity, r.InsiderBuyVal, r.InsiderSellVal, r.InsiderNetVal, r.InsiderFilings)
+
+	// ── Derived signals ───────────────────────────────────────────────────────
+	fmt.Fprintf(w, "Range    52W-Hi %-8s  52W-Lo %-8s  Pct-from-Hi %-8s  Pct-from-Lo %-8s  RSI14 %s\n",
+		r.Hi52, r.Lo52, r.PctFrom52Hi, r.PctFrom52Lo, r.RSI14)
+	fmt.Fprintf(w, "Signals  IV/HistRatio %-6s  BeatRate %-6s  AvgBeat %s\n",
+		r.ImpliedVsHistRatio, r.BeatRate, r.AvgBeatPct)
 
 	// ── Options ──────────────────────────────────────────────────────────────
 	fmt.Fprintf(w, "Options  Exp %-10s  Move %-6s (%-6s)  IV %-6s  P/C_Vol %-5s  P/C_OI %-5s  Skew %-6s  MaxPain %-8s (%s)  HistAvg %s\n",
@@ -192,7 +198,7 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 	if len(r.EarningsReactions) > 0 {
 		fmt.Fprintln(w, "\n  Past Earnings Reactions:")
 		rtw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(rtw, "    QUARTER\tANNOUNCED\tRXN_DAY\tPRIOR_CLS\tRXN_OPEN\tGAP_RET\tRXN_CLS\tDAY_RET\tPRE7\tPOST7\tEPS_EST\tEPS_ACT\tEPS_BEAT\tREV_ACT\tVIX\tMACRO")
+		fmt.Fprintln(rtw, "    QUARTER\tANNOUNCED\tRXN_DAY\tPRIOR_CLS\tRXN_OPEN\tGAP_RET\tRXN_CLS\tDAY_RET\tPRE7_CLS\tPRE7\tPOST7_CLS\tPOST7\tEPS_EST\tEPS_ACT\tEPS_BEAT\tREV_ACT\tVIX\tMACRO")
 		for _, rxn := range r.EarningsReactions {
 			epsEst := "N/A"
 			if rxn.EPSEstimate != 0 {
@@ -212,6 +218,14 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 				rxnOpenStr = fmt.Sprintf("$%.2f", rxn.ReactionOpen)
 				gapRetStr = fmtPct(&rxn.GapRetPct)
 			}
+			pre7ClsStr := "N/A"
+			if rxn.Pre7Close > 0 {
+				pre7ClsStr = fmt.Sprintf("$%.2f", rxn.Pre7Close)
+			}
+			post7ClsStr := "N/A"
+			if rxn.Post7Close > 0 {
+				post7ClsStr = fmt.Sprintf("$%.2f", rxn.Post7Close)
+			}
 			vixStr := "N/A"
 			if rxn.VIX > 0 {
 				vixStr = fmt.Sprintf("%.1f", rxn.VIX)
@@ -220,11 +234,12 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 			if macroStr == "" {
 				macroStr = "—"
 			}
-			fmt.Fprintf(rtw, "    %s\t%s\t%s\t$%.2f\t%s\t%s\t$%.2f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(rtw, "    %s\t%s\t%s\t$%.2f\t%s\t%s\t$%.2f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				rxn.Period, rxn.AnnouncementDate, rxn.ReactionDay,
 				rxn.PriorClose, rxnOpenStr, gapRetStr, rxn.ReactionClose,
 				fmtPct(&rxn.RetPct),
-				fmtPct(rxn.Pre7Ret), fmtPct(rxn.Post7Ret),
+				pre7ClsStr, fmtPct(rxn.Pre7Ret),
+				post7ClsStr, fmtPct(rxn.Post7Ret),
 				epsEst, epsAct, fmtPct(rxn.EPSBeatPct), revAct,
 				vixStr, macroStr,
 			)

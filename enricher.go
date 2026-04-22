@@ -83,6 +83,23 @@ type FinancialSummary struct {
 	TotalRatings    int
 	AvgPriceTarget  float64
 	PriceTargetUpside *float64 // (target - current) / current * 100
+
+	// ── Derived signals ──────────────────────────────────────────────────────
+
+	// 52-week range position and RSI(14).
+	Hi52         float64  // 52-week high closing price
+	Lo52         float64  // 52-week low closing price
+	PctFrom52Hi  *float64 // (current - hi52) / hi52 * 100  (negative = below high)
+	PctFrom52Lo  *float64 // (current - lo52) / lo52 * 100  (positive = above low)
+	RSI14        *float64 // 14-period Wilder RSI of daily closes
+
+	// Implied move vs historical move ratio.
+	// > 1.0 means options are pricing more uncertainty than the stock historically delivers.
+	ImpliedVsHistRatio *float64
+
+	// Earnings beat consistency (from last ≤4 EarningsReactions).
+	BeatRate   *float64 // fraction of quarters where EPS beat consensus (0–1)
+	AvgBeatPct *float64 // average EPS beat percentage across those quarters
 }
 
 // EarningsReaction holds the stock's price reaction to a past quarterly earnings report.
@@ -106,8 +123,10 @@ type EarningsReaction struct {
 	RevenueActual  float64  // actual reported revenue (from SEC EDGAR)
 
 	// Pre/post earnings drift (calendar days, excluding announcement/reaction days)
-	Pre7Ret  *float64 // 7 days before announcement → day before announcement
-	Post7Ret *float64 // reaction day → 7 days after reaction day
+	Pre7Ret   *float64 // 7 days before announcement → day before announcement
+	Pre7Close float64  // closing price ~7 calendar days before announcement
+	Post7Ret  *float64 // reaction day close → 7 calendar days after reaction day
+	Post7Close float64 // closing price ~7 calendar days after reaction day
 
 	// VIX closing level on the reaction day — high VIX = macro noise may have overwhelmed earnings signal
 	VIX float64
@@ -262,6 +281,8 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 	since := time.Now().AddDate(0, -3, 0)
 	if insider, err := e.secClient.FetchInsiderActivity(res.Symbol, since); err == nil {
 		s.Insider = insider
+	} else {
+		logf("Warning: insider data unavailable for %s: %v", res.Symbol, err)
 	}
 
 	// Institutional ownership from Finviz (covers mutual funds, hedge funds, investment advisors).
@@ -302,6 +323,51 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		if last.Revenue != 0 {
 			v := last.Revenue
 			s.RevenuePrevQtr = &v
+		}
+
+		// Override EPSLastYear with the authoritative SEC EDGAR value.
+		// The Nasdaq calendar's lastYearEPS field is unreliable (e.g. off by 10×).
+		// Find the history entry whose period end is closest to one year before the
+		// current fiscal quarter end, within a ±46-day window.
+		if qEnd, ok := parseFiscalQuarterEnd(s.FiscalQuarter); ok {
+			targetYearAgo := qEnd.AddDate(-1, 0, 0)
+			bestDiff := time.Duration(math.MaxInt64)
+			var bestEPS float64
+			for _, q := range history {
+				qPeriod, err2 := time.Parse("2006-01-02", q.Period)
+				if err2 != nil || q.EPS == 0 {
+					continue
+				}
+				diff := qPeriod.Sub(targetYearAgo)
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff <= 46*24*time.Hour && diff < bestDiff {
+					bestDiff = diff
+					bestEPS = q.EPS
+				}
+			}
+			if bestEPS != 0 {
+				// Only override Nasdaq's lastYearEPS with SEC EDGAR data when:
+				//   1. Nasdaq provided no prior-year EPS (missing data), OR
+				//   2. The ratio is extreme (>4× or <0.25×), indicating a Nasdaq data error
+				//      (e.g. NFLX Q1 2025: Nasdaq returned $0.66, SEC had $6.61 — a 10× error).
+				// When Nasdaq has a valid non-GAAP value within a reasonable range of the SEC
+				// GAAP value, trust Nasdaq — GAAP vs non-GAAP adjustments normally differ by <30%.
+				nasdaqEPS := s.EPSLastYear
+				var absRatio float64
+				if nasdaqEPS != 0 {
+					absRatio = math.Abs(bestEPS / nasdaqEPS)
+				}
+				if nasdaqEPS == 0 || absRatio > 4 || absRatio < 0.25 {
+					s.EPSLastYear = bestEPS
+					// Recompute YoY pct with the corrected value.
+					if s.EPSEstimate != 0 {
+						yoy := pctChange(s.EPSLastYear, s.EPSEstimate)
+						s.EPSYoYPct = &yoy
+					}
+				}
+			}
 		}
 	}
 
@@ -439,12 +505,45 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			continue
 		}
 		usedAnnounceDates[q.FilingDate] = true
-		reactionDay := nextWorkingDay(announceTime)
+		nextDay := nextWorkingDay(announceTime)
+
+		// Detect BMO vs AMC by comparing opening gaps:
+		//   BMO: earnings released before market open → big gap at announcement-day open
+		//   AMC: earnings released after close → big gap at next-day open
+		dayBeforeClose, okDayBefore := closestPrice(prices, announceTime.AddDate(0, 0, -1))
+		announceDayOpen := openOnDate(prices, announceTime)
+		announceDayClose, _ := closestPrice(prices, announceTime)
+		nextDayOpen := openOnDate(prices, nextDay)
+
+		isBMO := false
+		if okDayBefore && dayBeforeClose > 0 && announceDayOpen > 0 && announceDayClose > 0 && nextDayOpen > 0 {
+			gapAnnounce := math.Abs(announceDayOpen-dayBeforeClose) / dayBeforeClose
+			gapNextDay := math.Abs(nextDayOpen-announceDayClose) / announceDayClose
+			isBMO = gapAnnounce > gapNextDay
+		}
+
+		var reactionDay time.Time
+		var priorClose float64
+		var okPrior bool
+		if isBMO {
+			// BMO: market reacts on the announcement day itself.
+			reactionDay = announceTime
+			priorClose, okPrior = dayBeforeClose, okDayBefore
+		} else {
+			// AMC: market reacts the next working day.
+			// Use announcement-day close as baseline (stock closed before earnings came out).
+			reactionDay = nextDay
+			if announceDayClose > 0 {
+				priorClose, okPrior = announceDayClose, true
+			} else {
+				priorClose, okPrior = dayBeforeClose, okDayBefore
+			}
+		}
+
 		// Skip if reaction day hasn't happened yet (future quarter).
 		if reactionDay.After(now) {
 			continue
 		}
-		priorClose, okPrior := closestPrice(prices, announceTime.AddDate(0, 0, -1))
 		reactionClose, okReact := closestPrice(prices, reactionDay)
 		if !okPrior || !okReact || priorClose == 0 {
 			continue
@@ -453,19 +552,23 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 
 		// Pre-earnings drift: 7 calendar days before announcement → day before announcement.
 		var pre7Ret *float64
+		var pre7CloseVal float64
 		if pre7Close, ok := closestPrice(prices, announceTime.AddDate(0, 0, -7)); ok && pre7Close != 0 {
 			v := pctChange(pre7Close, priorClose)
 			pre7Ret = &v
+			pre7CloseVal = pre7Close
 		}
 
 		// Post-earnings drift: reaction day close → 7 calendar days after reaction day.
 		// Skips the immediate reaction day (day +1 after announcement).
 		var post7Ret *float64
+		var post7CloseVal float64
 		post7Target := reactionDay.AddDate(0, 0, 7)
 		if !post7Target.After(now) {
 			if post7Close, ok := closestPrice(prices, post7Target); ok && post7Close != 0 {
 				v := pctChange(reactionClose, post7Close)
 				post7Ret = &v
+				post7CloseVal = post7Close
 			}
 		}
 
@@ -481,7 +584,9 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			EPSActual:        q.EPS,
 			RevenueActual:    q.Revenue,
 			Pre7Ret:          pre7Ret,
+			Pre7Close:        pre7CloseVal,
 			Post7Ret:         post7Ret,
+			Post7Close:       post7CloseVal,
 		}
 		// VIX on reaction day.
 		if vix, ok := closestPrice(vixPrices, reactionDay); ok && vix > 0 {
@@ -555,7 +660,112 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		}
 	}
 
+	// ── Signal 1: short interest already in s.Institutional (populated by fetchInstitutionalData) ──
+
+	// ── Signal 2: 52-week high/low position + RSI(14) ────────────────────────
+	// Uses the last 252 trading days (≈1 year) from the already-fetched price history.
+	yearAgoTarget := now.AddDate(-1, 0, 0)
+	var hi52, lo52 float64
+	for _, p := range prices {
+		if p.Date.Before(yearAgoTarget) {
+			continue
+		}
+		if hi52 == 0 || p.Close > hi52 {
+			hi52 = p.Close
+		}
+		if lo52 == 0 || p.Close < lo52 {
+			lo52 = p.Close
+		}
+	}
+	if hi52 > 0 {
+		s.Hi52 = hi52
+		v := pctChange(hi52, current) // negative: current is below high
+		s.PctFrom52Hi = &v
+	}
+	if lo52 > 0 {
+		s.Lo52 = lo52
+		v := pctChange(lo52, current) // positive: current is above low
+		s.PctFrom52Lo = &v
+	}
+
+	// RSI(14): Wilder's smoothed moving average of gains vs losses.
+	if len(prices) >= 15 {
+		rsi := computeRSI14(prices)
+		s.RSI14 = &rsi
+	}
+
+	// ── Signal 3: implied move vs historical move ratio ───────────────────────
+	if s.Options != nil && s.Options.ExpectedMovePct > 0 && s.Options.HistAvgAbsRxn > 0 {
+		v := s.Options.ExpectedMovePct / s.Options.HistAvgAbsRxn
+		s.ImpliedVsHistRatio = &v
+	}
+
+	// ── Signal 4: earnings beat consistency ──────────────────────────────────
+	if len(s.EarningsReactions) > 0 {
+		var beats, total int
+		var sumBeatPct float64
+		for _, rxn := range s.EarningsReactions {
+			if rxn.EPSBeatPct == nil {
+				continue
+			}
+			total++
+			if *rxn.EPSBeatPct > 0 {
+				beats++
+			}
+			sumBeatPct += *rxn.EPSBeatPct
+		}
+		if total > 0 {
+			br := float64(beats) / float64(total)
+			s.BeatRate = &br
+			avg := sumBeatPct / float64(total)
+			s.AvgBeatPct = &avg
+		}
+	}
+
 	return s
+}
+
+// computeRSI14 computes the 14-period Wilder RSI from a sorted (oldest→newest)
+// price slice. Returns 50 if there is insufficient data.
+func computeRSI14(prices []pricePoint) float64 {
+	const period = 14
+	if len(prices) < period+1 {
+		return 50
+	}
+	// Use only the most recent period+1 prices for the seed average,
+	// then apply Wilder's smoothing over any remaining bars.
+	tail := prices[len(prices)-min(len(prices), period*3):]
+
+	var avgGain, avgLoss float64
+	for i := 1; i <= period && i < len(tail); i++ {
+		delta := tail[i].Close - tail[i-1].Close
+		if delta > 0 {
+			avgGain += delta
+		} else {
+			avgLoss -= delta
+		}
+	}
+	avgGain /= float64(period)
+	avgLoss /= float64(period)
+
+	// Wilder smoothing for remaining bars.
+	for i := period + 1; i < len(tail); i++ {
+		delta := tail[i].Close - tail[i-1].Close
+		gain, loss := 0.0, 0.0
+		if delta > 0 {
+			gain = delta
+		} else {
+			loss = -delta
+		}
+		avgGain = (avgGain*float64(period-1) + gain) / float64(period)
+		avgLoss = (avgLoss*float64(period-1) + loss) / float64(period)
+	}
+
+	if avgLoss == 0 {
+		return 100
+	}
+	rs := avgGain / avgLoss
+	return 100 - 100/(1+rs)
 }
 
 // fetchForwardEPS calls the Nasdaq analyst earnings-forecast endpoint.
@@ -744,4 +954,20 @@ func (e *Enricher) fetchNasdaqEPSEstimate(symbol string, date time.Time) (float6
 	return 0, fmt.Errorf("symbol %s not in calendar for %s", symbol, date.Format("2006-01-02"))
 }
 
+// parseFiscalQuarterEnd converts a Nasdaq FiscalQuarterEnding string (e.g. "Mar/2026")
+// to the last calendar day of that month. Returns false if the string cannot be parsed.
+func parseFiscalQuarterEnd(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	// Parse as the first day of the month, then advance to the last day.
+	t, err := time.Parse("Jan/2006", s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	// Last day of the month = first day of the next month minus one day.
+	lastDay := time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -1)
+	return lastDay, true
+}
 

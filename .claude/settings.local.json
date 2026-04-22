@@ -36,7 +36,29 @@
       "Bash(CRUMB=\"Q6pZG6pyi3o\" && curl -sb /tmp/yf10.txt \\\\\n  \"https://query2.finance.yahoo.com/v7/finance/options/LULU?crumb=$CRUMB\" \\\\\n  -A \"Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36\" \\\\\n  -H \"Referer: https://finance.yahoo.com/\" \\\\\n  2>&1 | head -c 200)",
       "Bash(wc -l /Users/rutujabodhe/Downloads/go_projects/quarterly_results/*.go)",
       "Bash(go test:*)",
-      "Bash(git --version 2>&1 && ls /Users/rutujabodhe/Downloads/go_projects/quarterly_results/)"
+      "Bash(git --version 2>&1 && ls /Users/rutujabodhe/Downloads/go_projects/quarterly_results/)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/120.0.0.0 Safari/537.36' -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Accept-Language: en-US,en;q=0.9' 'https://finviz.com/quote.ashx?t=NFLX&p=d')",
+      "Bash(grep -oP 'snapshot-td-label\">[^<]{1,40}</div></td>\\\\s*<td[^>]*>\\\\s*<div[^>]*>\\\\s*<b>[^<]+</b>')",
+      "Bash(curl -s https://data.sec.gov/submissions/CIK0001065280.json -H 'User-Agent: quarterly-results-debug admin@example.com')",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -H 'User-Agent: quarterly-results-debug admin@example.com' https://www.sec.gov/Archives/edgar/data/1065280/000154313326000002/__TRACKED_VAR__)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -H 'User-Agent: quarterly-results-debug admin@example.com' https://www.sec.gov/Archives/edgar/data/1065280/000154313326000002/xslF345X06/wk-form4_1775246849.xml)",
+      "Bash(curl -s -H 'User-Agent: quarterly-results-debug admin@example.com' https://www.sec.gov/Archives/edgar/data/1065280/000154313326000002/wk-form4_1775246849.xml)",
+      "Bash(curl -s -H 'User-Agent: quarterly-results-debug admin@example.com' https://data.sec.gov/submissions/CIK0001065280.json)",
+      "Bash(curl -s -H 'User-Agent: quarterly-results-debug admin@example.com' https://www.sec.gov/Archives/edgar/data/1065280/000106528026000136/wk-form4_1775167371.xml)",
+      "Bash(curl -s -H 'User-Agent: quarterly-results-debug admin@example.com' https://www.sec.gov/Archives/edgar/data/1065280/000106528026000136/xslF345X06/wk-form4_1775167371.xml)",
+      "Bash(curl -s -H 'User-Agent: quarterly-results-debug admin@example.com' https://www.sec.gov/Archives/edgar/data/1065280/000106528026000133/wk-form4_1775167345.xml)",
+      "Bash(curl -s -H 'User-Agent: quarterly-results-debug admin@example.com' https://www.sec.gov/Archives/edgar/data/1065280/000108290626000012/form4.xml)",
+      "Bash(curl -s -H 'User-Agent: quarterly-results-debug admin@example.com' https://www.sec.gov/Archives/edgar/data/1065280/000106528026000134/wk-form4_1775167354.xml)",
+      "Bash(curl -s https://www.sec.gov/files/company_tickers.json -H 'User-Agent: quarterly-results-debug admin@example.com')",
+      "Bash(curl -s -H 'User-Agent: Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/120.0.0.0 Safari/537.36' -H 'Accept: application/json, text/plain, */*' -H 'Origin: https://www.nasdaq.com' -H 'Referer: https://www.nasdaq.com/' 'https://api.nasdaq.com/api/calendar/earnings?date=2026-04-22')",
+      "Bash(python3 -c \" import json, sys data = json.load\\(sys.stdin\\) gaap = data.get\\('facts', {}\\).get\\('us-gaap', {}\\) rev_keys = [k for k in gaap if 'evenue' in k or 'ales' in k or 'Service' in k] print\\('BSX revenue-related concepts:'\\) for k in sorted\\(rev_keys\\): units = gaap[k].get\\('units', {}\\) count = sum\\(len\\(v\\) for v in units.values\\(\\)\\) print\\(f' {k}: {count} entries'\\) \")",
+      "Bash(python3 -c \" import json, sys from datetime import date data = json.load\\(sys.stdin\\) gaap = data['facts']['us-gaap'] print\\('BSX revenue-related concepts with any data:'\\) for concept, cdata in sorted\\(gaap.items\\(\\)\\): if 'evenue' not in concept and 'ales' not in concept: continue for unit_entries in cdata.get\\('units', {}\\).values\\(\\): recent = [e for e in unit_entries if e.get\\('end',''\\) >= '2023-01-01'] if recent: print\\(f' {concept}: {len\\(recent\\)} entries, latest end={max\\(e[\\\\\"end\\\\\"] for e in recent\\)}'\\) break \")",
+      "Bash(curl *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\('name'\\), d.get\\('cik'\\), d.get\\('tickers'\\)\\)\")",
+      "Bash(go vet *)",
+      "Bash(git stash *)"
     ]
   }
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -25,14 +26,20 @@ type QuarterActual struct {
 
 // SECClient fetches quarterly financial data from SEC EDGAR's XBRL API.
 // No API key required. Rate limit: ≤10 req/s.
-// SEC requires a descriptive User-Agent per their policy.
-const secUserAgent = "quarterly-results-tool research@example.com"
+// SEC requires a descriptive User-Agent with a real contact email per their
+// fair-access policy — requests with placeholder emails like "example.com" are
+// rate-limited (HTTP 429). Override with the SEC_USER_AGENT env var.
+var secUserAgent = func() string {
+	if v := os.Getenv("SEC_USER_AGENT"); v != "" {
+		return v
+	}
+	return "quarterly-results-tool ajaybodhe@gmail.com"
+}()
 
 type SECClient struct {
 	httpClient *http.Client
 	tickerCIK  map[string]int // upper-case ticker → CIK int
-	once       sync.Once
-	loadErr    error
+	mu         sync.Mutex
 }
 
 func NewSECClient() *SECClient {
@@ -41,44 +48,132 @@ func NewSECClient() *SECClient {
 	}
 }
 
+// lookupCIK returns the SEC CIK for the given ticker, or an error if not found.
+func (c *SECClient) lookupCIK(symbol string) (int, error) {
+	c.mu.Lock()
+	cik, ok := c.tickerCIK[strings.ToUpper(symbol)]
+	c.mu.Unlock()
+	if !ok {
+		return 0, fmt.Errorf("symbol %s not in SEC ticker map", symbol)
+	}
+	return cik, nil
+}
+
 // tickerEntry is one entry from SEC company_tickers.json.
 type tickerEntry struct {
 	CIK    int    `json:"cik_str"`
 	Ticker string `json:"ticker"`
 }
 
-// LoadTickerMap fetches the SEC ticker→CIK mapping (called once, result cached).
+// LoadTickerMap fetches the SEC ticker→CIK mapping.
+// It is safe to call concurrently. If a previous call already succeeded, it
+// returns immediately. If the previous call failed (transient error), it retries.
+// The mapping is also cached on disk (~24h) to avoid hitting SEC on every run;
+// the fetch endpoint is aggressively rate-limited by IP.
 func (c *SECClient) LoadTickerMap() error {
-	c.once.Do(func() {
-		req, _ := http.NewRequest("GET", "https://www.sec.gov/files/company_tickers.json", nil)
-		req.Header.Set("User-Agent", secUserAgent)
+	c.mu.Lock()
+	if c.tickerCIK != nil {
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
 
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			c.loadErr = fmt.Errorf("SEC ticker map fetch: %w", err)
-			return
-		}
-		defer resp.Body.Close()
+	// Try disk cache first.
+	if m, ok := readTickerCache(); ok {
+		c.mu.Lock()
+		c.tickerCIK = m
+		c.mu.Unlock()
+		return nil
+	}
 
-		var raw map[string]tickerEntry
-		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-			c.loadErr = fmt.Errorf("SEC ticker map decode: %w", err)
-			return
+	req, _ := http.NewRequest("GET", "https://www.sec.gov/files/company_tickers.json", nil)
+	req.Header.Set("User-Agent", secUserAgent)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("SEC ticker map fetch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		hint := ""
+		if resp.StatusCode == http.StatusTooManyRequests {
+			hint = " (rate-limited by SEC — wait a few minutes, or set SEC_USER_AGENT='your-name your-email@domain')"
 		}
-		c.tickerCIK = make(map[string]int, len(raw))
-		for _, e := range raw {
-			c.tickerCIK[strings.ToUpper(e.Ticker)] = e.CIK
-		}
-	})
-	return c.loadErr
+		return fmt.Errorf("SEC ticker map HTTP %d%s", resp.StatusCode, hint)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("SEC ticker map read: %w", err)
+	}
+
+	var raw map[string]tickerEntry
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return fmt.Errorf("SEC ticker map decode: %w", err)
+	}
+
+	m := make(map[string]int, len(raw))
+	for _, e := range raw {
+		m[strings.ToUpper(e.Ticker)] = e.CIK
+	}
+
+	c.mu.Lock()
+	c.tickerCIK = m
+	c.mu.Unlock()
+
+	writeTickerCache(body)
+	return nil
+}
+
+// tickerCachePath returns the on-disk location for the ticker map cache.
+func tickerCachePath() string {
+	dir, err := os.UserCacheDir()
+	if err != nil || dir == "" {
+		dir = os.TempDir()
+	}
+	return path.Join(dir, "quarterly_results", "sec_company_tickers.json")
+}
+
+// readTickerCache returns the cached ticker map if the file exists and is
+// fresher than 24 hours. Returns (nil, false) on any miss or read error.
+func readTickerCache() (map[string]int, bool) {
+	p := tickerCachePath()
+	info, err := os.Stat(p)
+	if err != nil || time.Since(info.ModTime()) > 24*time.Hour {
+		return nil, false
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, false
+	}
+	var raw map[string]tickerEntry
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, false
+	}
+	m := make(map[string]int, len(raw))
+	for _, e := range raw {
+		m[strings.ToUpper(e.Ticker)] = e.CIK
+	}
+	return m, true
+}
+
+// writeTickerCache persists the SEC ticker map JSON to disk. Errors are ignored
+// — caching is best-effort and a failure just means the next run will refetch.
+func writeTickerCache(data []byte) {
+	p := tickerCachePath()
+	if err := os.MkdirAll(path.Dir(p), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(p, data, 0o644)
 }
 
 // FetchQuarterlyActuals returns the last 5 quarters of EPS (diluted) and revenue
 // for a stock symbol, sourced directly from SEC XBRL filings.
 func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error) {
-	cik, ok := c.tickerCIK[strings.ToUpper(symbol)]
-	if !ok {
-		return nil, fmt.Errorf("symbol %s not in SEC ticker map", symbol)
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
 	}
 
 	// Fetch EPS and revenue concurrently.
@@ -97,15 +192,46 @@ func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error
 	}()
 	go func() {
 		// Revenue concept names differ by sector/reporting standard. Try in order.
+		// Many companies switched from "Revenues" to "RevenueFromContractWithCustomer..."
+		// when ASC 606 took effect (~2018). A concept is only accepted if it has data
+		// within the last 18 months — otherwise the old concept name silently wins
+		// and hides the current one (e.g. BSX, MCO).
+		recentCutoff := time.Now().AddDate(-1, -6, 0)
 		for _, name := range []string{
 			"Revenues",
+			"RevenuesNetOfInterestExpense", // broker-dealers, banks (e.g. IBKR, GS, MS)
 			"RevenueFromContractWithCustomerExcludingAssessedTax",
 			"RevenueFromContractWithCustomerIncludingAssessedTax",
 			"SalesRevenueNet",
 			"SalesRevenueGoodsNet",
 		} {
+			// Broker-dealers and banks: RevenuesNetOfInterestExpense is *net* revenue
+			// (gross interest income minus interest expense paid to customers, plus
+			// non-interest income). Yahoo Finance and most screeners report the *gross*
+			// figure — interest income + non-interest income — which produces a smaller
+			// P/S. Compute the gross sum per period and use it when available so our
+			// ratio matches what users see on comparison sites.
+			if name == "RevenuesNetOfInterestExpense" {
+				if d, fd, ps, ok := c.fetchBrokerGrossRevenue(cik, recentCutoff); ok {
+					revCh <- conceptResult{d, fd, ps, nil}
+					return
+				}
+			}
+
 			d, fd, ps, err := c.fetchConcept(cik, name)
-			if err == nil && len(d) > 0 {
+			if err != nil || len(d) == 0 {
+				continue
+			}
+			// Only use this concept if it has at least one period within 18 months.
+			hasRecent := false
+			for period := range d {
+				t, parseErr := time.Parse("2006-01-02", period)
+				if parseErr == nil && t.After(recentCutoff) {
+					hasRecent = true
+					break
+				}
+			}
+			if hasRecent {
 				revCh <- conceptResult{d, fd, ps, nil}
 				return
 			}
@@ -216,47 +342,164 @@ func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, m
 	filingDates  := make(map[string]string) // period-end → most recent filed date
 	periodStarts := make(map[string]string) // period-end → period start date
 
+	type annualRec struct {
+		start  time.Time
+		end    time.Time
+		filed  string
+		val    float64
+	}
+	var annuals []annualRec
+
 	for _, entries := range raw.Units {
 		for _, e := range entries {
 			if e.Form != "10-Q" && e.Form != "10-K" {
-				continue // skip non-quarterly forms (8-K, etc.)
+				continue
 			}
-			// Skip YTD (cumulative) entries: only keep single-quarter periods.
-			// A fiscal quarter spans 75–105 days; YTD entries span 150+ days.
-			if e.Start != "" && e.End != "" {
-				start, err1 := time.Parse("2006-01-02", e.Start)
-				end, err2 := time.Parse("2006-01-02", e.End)
-				if err1 == nil && err2 == nil {
-					days := int(end.Sub(start).Hours() / 24)
-					if days < 75 || days > 105 {
-						continue
-					}
-				}
+			if e.Start == "" || e.End == "" {
+				continue
 			}
-			// Only accept filings where the filing date is within 150 days of the period end.
-			// This prevents comparative prior-year data included in a later 10-Q from
-			// overwriting the original filing date (e.g. LULU's Dec 2025 10-Q contains
-			// tagged comparative data for Oct 2024, which would otherwise corrupt the date).
-			endDate, endErr := time.Parse("2006-01-02", e.End)
-			filedDate, filedErr := time.Parse("2006-01-02", e.Filed)
-			if endErr == nil && filedErr == nil {
-				if int(filedDate.Sub(endDate).Hours()/24) > 150 {
-					continue // comparative re-filing; ignore
-				}
+			start, err1 := time.Parse("2006-01-02", e.Start)
+			end, err2 := time.Parse("2006-01-02", e.End)
+			if err1 != nil || err2 != nil {
+				continue
 			}
-			// Among valid filings, keep the most recently filed (handles amendments within window).
-			if prev, ok := filingDates[e.End]; !ok || e.Filed > prev {
-				result[e.End] = e.Val
-				filingDates[e.End] = e.Filed
-				if e.Start != "" {
+			days := int(end.Sub(start).Hours() / 24)
+
+			// Only accept filings where the filing date is within 150 days of the
+			// period end (prevents comparative re-filings from corrupting dates).
+			filedDate, ferr := time.Parse("2006-01-02", e.Filed)
+			if ferr != nil {
+				continue
+			}
+			if int(filedDate.Sub(end).Hours()/24) > 150 {
+				continue
+			}
+
+			if days >= 75 && days <= 105 {
+				// Single-quarter entry: keep the most recently filed version.
+				if prev, ok := filingDates[e.End]; !ok || e.Filed > prev {
+					result[e.End] = e.Val
+					filingDates[e.End] = e.Filed
 					periodStarts[e.End] = e.Start
 				}
+			} else if days >= 350 && days <= 380 && e.Form == "10-K" {
+				// Full-year 10-K entry: collect for Q4 derivation below.
+				annuals = append(annuals, annualRec{start, end, e.Filed, e.Val})
 			}
 		}
 		break // only process the first unit type
 	}
 
+	// Derive Q4 = Annual − (Q1 + Q2 + Q3) for each fiscal year where Q4 is
+	// not already present as a directly-tagged quarterly period.
+	// This is necessary for calendar-year reporters (e.g. NFLX, MSFT) whose
+	// Q4 appears only as an annual total in the 10-K, never as a 10-Q.
+	for _, ann := range annuals {
+		yearEnd := ann.end.Format("2006-01-02")
+		if _, exists := result[yearEnd]; exists {
+			continue // Q4 was explicitly tagged; no derivation needed
+		}
+		// Find the three quarters (Q1, Q2, Q3) that fall within this fiscal year:
+		// their start must be >= fiscal year start and their end must be < fiscal year end.
+		var withinYear []struct {
+			endDate string
+			val     float64
+		}
+		for endStr, val := range result {
+			psStr := periodStarts[endStr]
+			if psStr == "" {
+				continue
+			}
+			ps, err1 := time.Parse("2006-01-02", psStr)
+			pe, err2 := time.Parse("2006-01-02", endStr)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			if (ps.Equal(ann.start) || ps.After(ann.start)) && pe.Before(ann.end) {
+				withinYear = append(withinYear, struct {
+					endDate string
+					val     float64
+				}{endStr, val})
+			}
+		}
+		if len(withinYear) != 3 {
+			continue // need exactly Q1+Q2+Q3 to derive Q4
+		}
+
+		var sumQ1Q2Q3 float64
+		var latestQEnd time.Time
+		for _, q := range withinYear {
+			sumQ1Q2Q3 += q.val
+			qe, _ := time.Parse("2006-01-02", q.endDate)
+			if qe.After(latestQEnd) {
+				latestQEnd = qe
+			}
+		}
+		result[yearEnd] = ann.val - sumQ1Q2Q3
+		filingDates[yearEnd] = ann.filed
+		periodStarts[yearEnd] = latestQEnd.AddDate(0, 0, 1).Format("2006-01-02")
+	}
+
 	return result, filingDates, periodStarts, nil
+}
+
+// fetchBrokerGrossRevenue returns per-quarter gross revenue for broker-dealers/banks,
+// computed as InterestIncomeOperating + NoninterestIncome (falling back to
+// InterestAndDividendIncomeOperating for banks that use that tag). Only periods
+// present in both underlying concepts are returned. `ok` is false if either
+// concept is missing, unavailable, or has no period within the recency cutoff.
+func (c *SECClient) fetchBrokerGrossRevenue(cik int, recentCutoff time.Time) (map[string]float64, map[string]string, map[string]string, bool) {
+	var ii map[string]float64
+	var iiFD, iiPS map[string]string
+	for _, name := range []string{"InterestIncomeOperating", "InterestAndDividendIncomeOperating"} {
+		d, fd, ps, err := c.fetchConcept(cik, name)
+		if err == nil && len(d) > 0 {
+			ii, iiFD, iiPS = d, fd, ps
+			break
+		}
+	}
+	if len(ii) == 0 {
+		return nil, nil, nil, false
+	}
+
+	ni, niFD, _, err := c.fetchConcept(cik, "NoninterestIncome")
+	if err != nil || len(ni) == 0 {
+		return nil, nil, nil, false
+	}
+
+	merged := make(map[string]float64)
+	mergedFD := make(map[string]string)
+	mergedPS := make(map[string]string)
+	for period, iv := range ii {
+		nv, ok := ni[period]
+		if !ok {
+			continue
+		}
+		merged[period] = iv + nv
+		// Use the later of the two filing dates for this period.
+		if iiFD[period] > niFD[period] {
+			mergedFD[period] = iiFD[period]
+		} else {
+			mergedFD[period] = niFD[period]
+		}
+		mergedPS[period] = iiPS[period]
+	}
+	if len(merged) == 0 {
+		return nil, nil, nil, false
+	}
+
+	hasRecent := false
+	for period := range merged {
+		t, perr := time.Parse("2006-01-02", period)
+		if perr == nil && t.After(recentCutoff) {
+			hasRecent = true
+			break
+		}
+	}
+	if !hasRecent {
+		return nil, nil, nil, false
+	}
+	return merged, mergedFD, mergedPS, true
 }
 
 // ── Insider trading (Form 4) ──────────────────────────────────────────────────
@@ -327,9 +570,9 @@ func (c *SECClient) fetchSubmissions(cik int) (*secSubmissionsResponse, error) {
 // release earnings, which precedes the 10-Q by several days. The 8-K date is the
 // correct proxy for when the market first saw the results.
 func (c *SECClient) FetchEarningsAnnouncementDates(symbol string, quarters []QuarterActual) (map[string]string, error) {
-	cik, ok := c.tickerCIK[strings.ToUpper(symbol)]
-	if !ok {
-		return nil, fmt.Errorf("symbol %s not in SEC ticker map", symbol)
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
 	}
 	subs, err := c.fetchSubmissions(cik)
 	if err != nil {
@@ -385,9 +628,9 @@ func dateAddDays(dateStr string, n int) string {
 // FetchInsiderActivity returns open-market buy/sell activity from Form 4 filings
 // filed on or after `since`.
 func (c *SECClient) FetchInsiderActivity(symbol string, since time.Time) (*InsiderSummary, error) {
-	cik, ok := c.tickerCIK[strings.ToUpper(symbol)]
-	if !ok {
-		return nil, fmt.Errorf("symbol %s not in SEC ticker map", symbol)
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
 	}
 
 	// 1. Fetch submissions JSON to get list of recent Form 4 filings.

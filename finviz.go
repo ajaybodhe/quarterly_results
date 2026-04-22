@@ -14,13 +14,18 @@ import (
 // "Inst Trans" represents the net % change in institutional holdings from the
 // prior 13F quarter to the most recent one — positive = net buying, negative = net selling.
 type InstitutionalData struct {
-	InstOwn   float64 // current institutional ownership as % of shares outstanding
-	InstTrans float64 // quarter-over-quarter change in institutional ownership (%)
-	Activity  string  // "Net Buyer" / "Net Seller" / "No Activity"
+	InstOwn    float64 // current institutional ownership as % of shares outstanding
+	InstTrans  float64 // quarter-over-quarter change in institutional ownership (%)
+	Activity   string  // "Net Buyer" / "Net Seller" / "No Activity"
+	ShortFloat float64 // short interest as % of float
+	ShortRatio float64 // days-to-cover (short interest / avg daily volume)
 }
 
 // finvizFieldRe matches a metric name and its bold value from the Finviz snapshot table.
-var finvizFieldRe = regexp.MustCompile(`>([^<]{1,40})</(?:td|a)>\s*<td[^>]*><b>([^<]+)</b>`)
+// Current HTML structure (2025+):
+//   <div class="snapshot-td-label">Inst Own</div></td>
+//   <td ...><div class="snapshot-td-content"><b>81.01%</b></div></td>
+var finvizFieldRe = regexp.MustCompile(`snapshot-td-label">([^<]{1,40})</div></td>\s*<td[^>]*>\s*<div[^>]*>\s*<b>([^<]+)</b>`)
 
 // fetchInstitutionalData fetches institutional ownership data from Finviz.
 func (e *Enricher) fetchInstitutionalData(symbol string) (*InstitutionalData, error) {
@@ -73,6 +78,9 @@ func parseFinvizData(html string) (*InstitutionalData, error) {
 	instOwn, _ := strconv.ParseFloat(instOwnStr, 64)
 	instTrans, _ := strconv.ParseFloat(instTransStr, 64)
 
+	shortFloat, _ := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(metrics["Short Float"]), "%"), 64)
+	shortRatio, _ := strconv.ParseFloat(strings.TrimSpace(metrics["Short Ratio"]), 64)
+
 	var activity string
 	switch {
 	case instTrans > 0:
@@ -84,8 +92,10 @@ func parseFinvizData(html string) (*InstitutionalData, error) {
 	}
 
 	return &InstitutionalData{
-		InstOwn:   instOwn,
-		InstTrans: instTrans,
-		Activity:  activity,
+		InstOwn:    instOwn,
+		InstTrans:  instTrans,
+		Activity:   activity,
+		ShortFloat: shortFloat,
+		ShortRatio: shortRatio,
 	}, nil
 }
