@@ -515,7 +515,12 @@ type InsiderSummary struct {
 }
 
 // secSubmissionsResponse is the relevant slice of the SEC submissions JSON.
+// The top-level fields (Name, SIC, SICDescription) come from the entity metadata
+// returned alongside the filings list.
 type secSubmissionsResponse struct {
+	Name           string `json:"name"`           // legal entity name, e.g. "Apple Inc."
+	SIC            string `json:"sic"`            // 4-digit SIC code as string, e.g. "3571"
+	SICDescription string `json:"sicDescription"` // e.g. "ELECTRONIC COMPUTERS"
 	Filings struct {
 		Recent struct {
 			Form                []string `json:"form"`
@@ -526,6 +531,21 @@ type secSubmissionsResponse struct {
 			PrimaryDocDesc      []string `json:"primaryDocDescription"` // e.g. "EARNINGS RELEASE"
 		} `json:"recent"`
 	} `json:"filings"`
+}
+
+// FetchEntitySIC returns the SIC code (numeric) and its description for the given
+// symbol. Used for sector-based peer matching.
+func (c *SECClient) FetchEntitySIC(symbol string) (sic int, sicDesc string, err error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return 0, "", err
+	}
+	subs, err := c.fetchSubmissions(cik)
+	if err != nil {
+		return 0, "", err
+	}
+	v, _ := strconv.Atoi(subs.SIC)
+	return v, subs.SICDescription, nil
 }
 
 // MaterialEvent is a significant 8-K filing with optional stock-price context.

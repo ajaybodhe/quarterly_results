@@ -103,6 +103,9 @@ type FinancialSummary struct {
 
 	// Material 8-K events in the last 90 days, annotated with stock price reaction.
 	MaterialEvents []MaterialEvent
+
+	// Sector peers that already reported results for the same fiscal quarter.
+	Peers []PeerResult
 }
 
 // EarningsReaction holds the stock's price reaction to a past quarterly earnings report.
@@ -722,6 +725,16 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			s.BeatRate = &br
 			avg := sumBeatPct / float64(total)
 			s.AvgBeatPct = &avg
+		}
+	}
+
+	// ── Sector peers (same quarter, already reported) ────────────────────────
+	// Derive the target's fiscal quarter end from the FiscalQuarter string
+	// (e.g. "Mar/2026" → 2026-03-31).  Skip if we can't parse the quarter.
+	if qEnd, ok := parseFiscalQuarterEnd(s.FiscalQuarter); ok {
+		targetSIC, _, _ := e.secClient.FetchEntitySIC(res.Symbol)
+		if peers := e.fetchPeers(res.Symbol, targetSIC, qEnd); len(peers) > 0 {
+			s.Peers = peers
 		}
 	}
 

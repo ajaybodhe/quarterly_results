@@ -194,6 +194,53 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 		r.OptionsExpiry, r.ExpectedMove, r.ExpectedMovePct, r.IVAtm,
 		r.PCVol, r.PCoi, r.Skew, r.MaxPain, r.MaxPainVsCurrent, r.HistAvgAbsRxn)
 
+	// ── Sector Peers (already reported same quarter) ─────────────────────────
+	if len(r.Peers) > 0 {
+		fmt.Fprintln(w, "\n  Sector Peers (same quarter, already reported):")
+		ptw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(ptw, "    SYMBOL\tCOMPANY\tCAP_B\tTIME\tEPS_EST\tEPS_ACT\tEPS_BEAT\tREV_ACT_B\tRXN_DAY\tPRIOR_CLS\tRXN_OPEN\tGAP\tRXN_CLS\tDAY_RET")
+		for _, p := range r.Peers {
+			epsEst := "N/A"
+			if p.EPSEstimate != 0 {
+				epsEst = fmt.Sprintf("$%.2f", p.EPSEstimate)
+			}
+			epsAct := "N/A"
+			if p.EPSActual != 0 {
+				epsAct = fmt.Sprintf("$%.2f", p.EPSActual)
+			}
+			epsBeat := "N/A"
+			if p.EPSBeatPct != nil {
+				epsBeat = fmtPct(p.EPSBeatPct)
+			}
+			revAct := "N/A"
+			if p.RevActual != 0 {
+				revAct = fmt.Sprintf("$%.2fB", p.RevActual/1e9)
+			}
+			rxnOpen := "N/A"
+			if p.ReactionOpen > 0 {
+				rxnOpen = fmt.Sprintf("$%.2f", p.ReactionOpen)
+			}
+			timeStr := p.EarningsTime
+			if timeStr == "" {
+				timeStr = "?"
+			}
+			fmt.Fprintf(ptw, "    %s\t%s\t$%.0fB\t%s\t%s\t%s\t%s\t%s\t%s\t$%.2f\t%s\t%s\t$%.2f\t%s\n",
+				p.Symbol,
+				truncate(p.CompanyName, 20),
+				p.MarketCapB,
+				timeStr,
+				epsEst, epsAct, epsBeat, revAct,
+				p.ReactionDay,
+				p.PriorClose,
+				rxnOpen,
+				fmtPct(&p.GapRetPct),
+				p.ReactionClose,
+				fmtPct(&p.DayRetPct),
+			)
+		}
+		ptw.Flush()
+	}
+
 	// ── Material Events ───────────────────────────────────────────────────────
 	if len(r.MaterialEvents) > 0 {
 		fmt.Fprintln(w, "\n  Material Events (last 90 days):")

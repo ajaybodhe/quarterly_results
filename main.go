@@ -115,6 +115,9 @@ type EarningsResult struct {
 
 	// Material 8-K events in the last 90 days
 	MaterialEvents []MaterialEvent `json:"material_events,omitempty"`
+
+	// Sector peers that already reported the same fiscal quarter
+	Peers []PeerResult `json:"peers,omitempty"`
 }
 
 func main() {
@@ -309,6 +312,7 @@ func main() {
 		r.EarningsReactions = s.EarningsReactions
 		r.MacroContext = s.MacroContext
 		r.MaterialEvents = s.MaterialEvents
+		r.Peers = s.Peers
 
 		// Derived signals
 		if s.Hi52 > 0 {
