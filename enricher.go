@@ -100,6 +100,9 @@ type FinancialSummary struct {
 	// Earnings beat consistency (from last ≤4 EarningsReactions).
 	BeatRate   *float64 // fraction of quarters where EPS beat consensus (0–1)
 	AvgBeatPct *float64 // average EPS beat percentage across those quarters
+
+	// Material 8-K events in the last 90 days, annotated with stock price reaction.
+	MaterialEvents []MaterialEvent
 }
 
 // EarningsReaction holds the stock's price reaction to a past quarterly earnings report.
@@ -722,7 +725,66 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		}
 	}
 
+	// ── Material 8-K events (last 90 days) ────────────────────────────────────
+	// Fetch events and annotate each with the stock's daily return, flagging
+	// abnormal moves (|ret| > 1.5× the 30-day rolling daily standard deviation).
+	matSince := now.AddDate(0, -3, 0)
+	if matEvents, err := e.secClient.FetchMaterialEvents(res.Symbol, matSince); err == nil && len(matEvents) > 0 {
+		// Compute 30-day rolling daily vol from the price history.
+		vol30 := dailyVolatility(prices, 30)
+		threshold := 1.5 * vol30
+
+		for i := range matEvents {
+			evDate, perr := time.Parse("2006-01-02", matEvents[i].Date)
+			if perr != nil {
+				continue
+			}
+			evClose, okClose := closestPrice(prices, evDate)
+			evPrev, okPrev := closestPrice(prices, evDate.AddDate(0, 0, -1))
+			if okClose && okPrev && evPrev != 0 {
+				ret := pctChange(evPrev, evClose)
+				matEvents[i].RetPct = ret
+				matEvents[i].Abnormal = threshold > 0 && math.Abs(ret) > threshold
+			}
+		}
+		s.MaterialEvents = matEvents
+	}
+
 	return s
+}
+
+// dailyVolatility returns the standard deviation of daily percentage returns
+// over the last n calendar days of prices (oldest→newest). Returns 0 if
+// insufficient data.
+func dailyVolatility(prices []pricePoint, days int) float64 {
+	if len(prices) < 2 {
+		return 0
+	}
+	cutoff := prices[len(prices)-1].Date.AddDate(0, 0, -days)
+	var rets []float64
+	for i := 1; i < len(prices); i++ {
+		if prices[i].Date.Before(cutoff) {
+			continue
+		}
+		if prices[i-1].Close == 0 {
+			continue
+		}
+		rets = append(rets, pctChange(prices[i-1].Close, prices[i].Close))
+	}
+	if len(rets) < 2 {
+		return 0
+	}
+	var sum float64
+	for _, r := range rets {
+		sum += r
+	}
+	mean := sum / float64(len(rets))
+	var sq float64
+	for _, r := range rets {
+		d := r - mean
+		sq += d * d
+	}
+	return math.Sqrt(sq / float64(len(rets)-1))
 }
 
 // computeRSI14 computes the 14-period Wilder RSI from a sorted (oldest→newest)

@@ -518,12 +518,23 @@ type InsiderSummary struct {
 type secSubmissionsResponse struct {
 	Filings struct {
 		Recent struct {
-			Form            []string `json:"form"`
-			FilingDate      []string `json:"filingDate"`
-			AccessionNumber []string `json:"accessionNumber"`
-			PrimaryDocument []string `json:"primaryDocument"`
+			Form                []string `json:"form"`
+			FilingDate          []string `json:"filingDate"`
+			AccessionNumber     []string `json:"accessionNumber"`
+			PrimaryDocument     []string `json:"primaryDocument"`
+			Items               []string `json:"items"`               // e.g. "2.02,9.01"
+			PrimaryDocDesc      []string `json:"primaryDocDescription"` // e.g. "EARNINGS RELEASE"
 		} `json:"recent"`
 	} `json:"filings"`
+}
+
+// MaterialEvent is a significant 8-K filing with optional stock-price context.
+type MaterialEvent struct {
+	Date     string  // YYYY-MM-DD (8-K filing date)
+	Items    string  // raw item string, e.g. "2.02,9.01"
+	Label    string  // human-readable label for the most significant item
+	RetPct   float64 // stock return on that date (0 = unavailable)
+	Abnormal bool    // |RetPct| > 1.5× 30-day rolling daily vol
 }
 
 // form4Doc is the XML structure of an SEC Form 4 filing.
@@ -614,6 +625,93 @@ func (c *SECClient) FetchEarningsAnnouncementDates(symbol string, quarters []Qua
 		}
 	}
 	return result, nil
+}
+
+// item8KLabel returns a human-readable label for the most significant item in a
+// comma-separated SEC 8-K items string. Items are evaluated in priority order
+// so that a filing with both "2.02,9.01" surfaces as "Earnings Release" rather
+// than the less-informative "Financial Statements".
+func item8KLabel(items string) string {
+	priority := []struct {
+		item  string
+		label string
+	}{
+		{"1.03", "Bankruptcy/Receivership"},
+		{"1.01", "Material Agreement"},
+		{"1.02", "Agreement Terminated"},
+		{"2.01", "Asset Acquisition/Disposal"},
+		{"3.01", "Rating Agency Action"},
+		{"4.01", "Auditor Change"},
+		{"5.01", "Change in Control"},
+		{"5.02", "Director/Officer Change"},
+		{"5.03", "Charter Amendment"},
+		{"5.07", "Stockholder Vote"},
+		{"2.03", "Off-Balance-Sheet Arrangement"},
+		{"2.04", "Triggering Events"},
+		{"2.02", "Earnings Release"},
+		{"7.01", "Regulation FD Disclosure"},
+		{"8.01", "Other Events"},
+		{"9.01", "Financial Statements"},
+	}
+	for _, p := range priority {
+		for _, part := range strings.Split(items, ",") {
+			if strings.TrimSpace(part) == p.item {
+				return p.label
+			}
+		}
+	}
+	if items != "" {
+		return "Item " + strings.TrimSpace(strings.SplitN(items, ",", 2)[0])
+	}
+	return "8-K Filing"
+}
+
+// FetchMaterialEvents returns material 8-K events filed in the last 90 days
+// (or since `since`, whichever is later). Excludes 8-K/A amendments and
+// filings whose only item is "9.01" (standalone financial exhibit attachments).
+// Returns at most 10 events (most-recent first).
+func (c *SECClient) FetchMaterialEvents(symbol string, since time.Time) ([]MaterialEvent, error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
+	}
+	subs, err := c.fetchSubmissions(cik)
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := since.Format("2006-01-02")
+	r := subs.Filings.Recent
+	var events []MaterialEvent
+	for i, form := range r.Form {
+		if form != "8-K" {
+			continue // skip 8-K/A amendments and other forms
+		}
+		if i >= len(r.FilingDate) {
+			break
+		}
+		date := r.FilingDate[i]
+		if date < cutoff {
+			continue
+		}
+		items := ""
+		if i < len(r.Items) {
+			items = strings.TrimSpace(r.Items[i])
+		}
+		// Skip filings that only have "9.01" (financial exhibit with no material event).
+		if items == "9.01" || items == "" {
+			continue
+		}
+		events = append(events, MaterialEvent{
+			Date:  date,
+			Items: items,
+			Label: item8KLabel(items),
+		})
+		if len(events) >= 10 {
+			break
+		}
+	}
+	return events, nil
 }
 
 // dateAddDays adds n days to a YYYY-MM-DD string, returning the result as YYYY-MM-DD.

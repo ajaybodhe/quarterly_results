@@ -177,6 +177,27 @@ func TestComputeResultDate(t *testing.T) {
 	}
 }
 
+// ── openOnDate ───────────────────────────────────────────────────────────────
+
+func TestOpenOnDate(t *testing.T) {
+	pts := []pricePoint{
+		{Date: mustDate("2025-01-08"), Open: 110, Close: 112},
+		{Date: mustDate("2025-01-09"), Open: 115, Close: 118},
+	}
+	if got := openOnDate(pts, mustDate("2025-01-08")); got != 110 {
+		t.Errorf("openOnDate exact match = %v, want 110", got)
+	}
+	if got := openOnDate(pts, mustDate("2025-01-09")); got != 115 {
+		t.Errorf("openOnDate Jan 9 = %v, want 115", got)
+	}
+	if got := openOnDate(pts, mustDate("2025-01-10")); got != 0 {
+		t.Errorf("openOnDate missing date = %v, want 0", got)
+	}
+	if got := openOnDate(nil, mustDate("2025-01-08")); got != 0 {
+		t.Errorf("openOnDate nil slice = %v, want 0", got)
+	}
+}
+
 // ── closestPrice ─────────────────────────────────────────────────────────────
 
 func mustDate(s string) time.Time {

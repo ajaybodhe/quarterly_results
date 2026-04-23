@@ -1,7 +1,10 @@
 package main
 
 import (
+	"io"
 	"math"
+	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -146,4 +149,163 @@ func TestParseSAEstimates(t *testing.T) {
 			t.Errorf("AvgPriceTarget = %v, want 155", est.AvgPriceTarget)
 		}
 	})
+}
+
+// saHTMLBuilder helps compose synthetic stockanalysis HTML fragments for tests.
+type saHTMLBuilder struct {
+	eps, revenues, analysts string
+	dates                   string
+	revenueNext, revenueThis string
+	extras                  []string
+}
+
+func (b saHTMLBuilder) String() string {
+	return "quarterly:{eps:[" + b.eps +
+		"],dates:[" + b.dates +
+		"],revenue:[" + b.revenues +
+		"],analysts:[" + b.analysts + "]}," +
+		b.revenueNext + "," + b.revenueThis +
+		strings.Join(b.extras, ",")
+}
+
+// TestParseSAEstimates_RevenueRowSelection pins the IBM/TSLA regression: when
+// the first quarterly-table row with analysts>0 has a revenue cell populated,
+// that value must be used as the forward estimate — NOT revenueNext.this from
+// the stats block (which is the quarter *after* the upcoming report).
+func TestParseSAEstimates_RevenueRowSelection(t *testing.T) {
+	b := saHTMLBuilder{
+		eps:      "3.1,3.2,3.3",
+		dates:    `"2026-03","2026-06","2026-09"`,
+		revenues: "15640000000,17890000000,19000000000", // IBM-like: row0 < row1
+		analysts: "18,15,10",
+		// revenueNext.this = 17.89B matches row 1, the row one quarter too far.
+		// revenueThis.this = 15.64B matches row 0, the upcoming report.
+		revenueNext: "revenueNext:{last:15640000000,this:17890000000}",
+		revenueThis: "revenueThis:{last:14000000000,this:15640000000}",
+	}
+	est, err := parseSAEstimates(b.String())
+	if err != nil {
+		t.Fatalf("parseSAEstimates: %v", err)
+	}
+	// Must use the table row (15.64B), not revenueNext.this (17.89B).
+	if math.Abs(est.RevenueEst-15_640_000_000) > 1 {
+		t.Errorf("RevenueEst = %.0f, want 15_640_000_000 (table row, not revenueNext.this)", est.RevenueEst)
+	}
+	if math.Abs(est.RevenuePrevYear-14_000_000_000) > 1 {
+		t.Errorf("RevenuePrevYear = %.0f, want 14_000_000_000 (revenueThis.last)", est.RevenuePrevYear)
+	}
+	if est.ReportDate != "2026-03" {
+		t.Errorf("ReportDate = %q, want 2026-03", est.ReportDate)
+	}
+	if est.Analysts != 18 {
+		t.Errorf("Analysts = %d, want 18", est.Analysts)
+	}
+}
+
+// TestParseSAEstimates_PaywallFallback: if the quarterly-table revenue cell is
+// null/0 (paywalled), fall back to revenueNext.this from the stats block.
+func TestParseSAEstimates_PaywallFallback(t *testing.T) {
+	b := saHTMLBuilder{
+		eps:      "3.1,3.2",
+		dates:    `"2026-03","2026-06"`,
+		revenues: "null,17000000000", // paywalled row 0
+		analysts: "20,15",
+		revenueNext: "revenueNext:{last:14000000000,this:15500000000}",
+		revenueThis: "revenueThis:{last:14000000000,this:15500000000}",
+	}
+	est, err := parseSAEstimates(b.String())
+	if err != nil {
+		t.Fatalf("parseSAEstimates: %v", err)
+	}
+	if math.Abs(est.RevenueEst-15_500_000_000) > 1 {
+		t.Errorf("fallback RevenueEst = %.0f, want revenueNext.this = 15_500_000_000", est.RevenueEst)
+	}
+}
+
+// TestParseSAEstimates_NoForwardRow: when every row has analysts == 0 (future
+// rows only), parseSAEstimates must return an error rather than a zeroed struct.
+func TestParseSAEstimates_NoForwardRow(t *testing.T) {
+	b := saHTMLBuilder{
+		eps:      "null,null",
+		dates:    `"2026-12","2027-03"`,
+		revenues: "null,null",
+		analysts: "0,0",
+		revenueNext: "revenueNext:{last:1,this:1}",
+		revenueThis: "revenueThis:{last:1,this:1}",
+	}
+	_, err := parseSAEstimates(b.String())
+	if err == nil {
+		t.Error("expected error when no row has analysts > 0")
+	}
+}
+
+// TestParseSAEstimates_LatestRatingSnapshotWins: with multiple monthly rating
+// snapshots in the page, the *last* one represents the current month and must
+// be the one surfaced.
+func TestParseSAEstimates_LatestRatingSnapshotWins(t *testing.T) {
+	b := saHTMLBuilder{
+		eps:      "3.1",
+		dates:    `"2026-03"`,
+		revenues: "15000000000",
+		analysts: "10",
+		revenueNext: "revenueNext:{last:14000000000,this:15000000000}",
+		revenueThis: "revenueThis:{last:13000000000,this:14000000000}",
+		extras: []string{
+			// Older snapshot.
+			`{buy:1,date:"2025-01",hold:1,sell:1,month:"2025-01",score:2.0,total:5,updated:"2025-01-01",consensus:"Hold",strongBuy:1,strongSell:1}`,
+			// Latest snapshot — should win.
+			`{buy:9,date:"2026-03",hold:3,sell:1,month:"2026-03",score:4.2,total:20,updated:"2026-03-01",consensus:"Strong Buy",strongBuy:6,strongSell:1}`,
+		},
+	}
+	est, err := parseSAEstimates(b.String())
+	if err != nil {
+		t.Fatalf("parseSAEstimates: %v", err)
+	}
+	if est.ConsensusRating != "Strong Buy" {
+		t.Errorf("ConsensusRating = %q, want Strong Buy (latest snapshot)", est.ConsensusRating)
+	}
+	if est.Buy != 9 || est.StrongBuy != 6 || est.TotalRatings != 20 {
+		t.Errorf("latest snapshot counts mismatch: Buy=%d StrongBuy=%d Total=%d", est.Buy, est.StrongBuy, est.TotalRatings)
+	}
+}
+
+func TestFetchSAEstimates_HTTPError(t *testing.T) {
+	tr := newMockTransport().on("stockanalysis.com", 503, "maintenance", "text/html")
+	e := &Enricher{httpClient: newMockClient(tr)}
+	_, err := e.fetchSAEstimates("AAPL")
+	if err == nil || !strings.Contains(err.Error(), "503") {
+		t.Errorf("expected 503 error, got %v", err)
+	}
+}
+
+func TestFetchSAEstimates_LowercaseSymbolInURL(t *testing.T) {
+	// stockanalysis URLs require lowercase tickers; fetchSAEstimates must lowercase.
+	var seenURL string
+	tr := newMockTransport().onFunc(
+		func(r *http.Request) bool { seenURL = r.URL.String(); return true },
+		func(r *http.Request) *http.Response {
+			// Return a minimally valid HTML so the caller does not error on content.
+			b := saHTMLBuilder{
+				eps:      "1.0",
+				dates:    `"2026-03"`,
+				revenues: "100",
+				analysts: "5",
+				revenueNext: "revenueNext:{last:50,this:100}",
+				revenueThis: "revenueThis:{last:50,this:100}",
+			}
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(strings.NewReader(b.String())),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    r,
+			}
+		},
+	)
+	e := &Enricher{httpClient: newMockClient(tr)}
+	if _, err := e.fetchSAEstimates("AAPL"); err != nil {
+		t.Fatalf("fetchSAEstimates: %v", err)
+	}
+	if !strings.Contains(seenURL, "/stocks/aapl/forecast") {
+		t.Errorf("URL should lowercase ticker: %s", seenURL)
+	}
 }

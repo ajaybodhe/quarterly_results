@@ -58,7 +58,12 @@
       "Bash(python3 -m json.tool)",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\('name'\\), d.get\\('cik'\\), d.get\\('tickers'\\)\\)\")",
       "Bash(go vet *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(python3 *)",
+      "Bash(wait %1)",
+      "Bash(go tool *)",
+      "Bash(sort -k3 -n)",
+      "Bash(sort -t: -k3 -n)"
     ]
   }
 }

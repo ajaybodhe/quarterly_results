@@ -112,6 +112,9 @@ type EarningsResult struct {
 
 	// Post-earnings stock reactions for last ≤4 quarters
 	EarningsReactions []EarningsReaction `json:"earnings_reactions,omitempty"`
+
+	// Material 8-K events in the last 90 days
+	MaterialEvents []MaterialEvent `json:"material_events,omitempty"`
 }
 
 func main() {
@@ -119,6 +122,7 @@ func main() {
 	toStr := flag.String("to", "", "End of date range (YYYY-MM-DD); optional when --symbol is set")
 	outputFmt := flag.String("output", "table", "Output format: table | csv | json")
 	minCapB := flag.Float64("min-cap-b", defaultMinMarketCap/1e9, "Minimum market cap in billions USD (default 10)")
+	maxCapB := flag.Float64("max-cap-b", 0, "Maximum market cap in billions USD (0 = no upper limit)")
 	symbolFlag := flag.String("symbol", "", "Single stock symbol to analyse (skips market-cap filter; from/to optional)")
 	flag.Parse()
 
@@ -152,6 +156,7 @@ func main() {
 	}
 
 	minCap := *minCapB * 1e9
+	maxCap := *maxCapB * 1e9 // 0 means no upper limit
 	filterSymbol := strings.ToUpper(strings.TrimSpace(*symbolFlag))
 
 	// ── Step 1: Fetch earnings calendar ─────────────────────────────────────
@@ -176,12 +181,12 @@ func main() {
 			qualified = []EarningsEvent{{Symbol: filterSymbol}}
 		}
 	} else {
-		for _, e := range events {
-			if e.MarketCap >= minCap {
-				qualified = append(qualified, e)
-			}
+		qualified = filterByMarketCap(events, minCap, maxCap)
+		if maxCap > 0 {
+			logf("Qualifying ($%.0fB–$%.0fB market cap): %d", *minCapB, *maxCapB, len(qualified))
+		} else {
+			logf("Qualifying (market cap > $%.0fB): %d", *minCapB, len(qualified))
 		}
-		logf("Qualifying (market cap > $%.0fB): %d", *minCapB, len(qualified))
 		if len(qualified) == 0 {
 			return
 		}
@@ -303,6 +308,7 @@ func main() {
 		r.AnalystTotal = s.TotalRatings
 		r.EarningsReactions = s.EarningsReactions
 		r.MacroContext = s.MacroContext
+		r.MaterialEvents = s.MaterialEvents
 
 		// Derived signals
 		if s.Hi52 > 0 {
@@ -379,6 +385,22 @@ func main() {
 	default:
 		writeStockCards(os.Stdout, results)
 	}
+}
+
+// filterByMarketCap returns the subset of events whose MarketCap is in
+// [minCap, maxCap]. maxCap == 0 means no upper bound.
+func filterByMarketCap(events []EarningsEvent, minCap, maxCap float64) []EarningsEvent {
+	var out []EarningsEvent
+	for _, e := range events {
+		if e.MarketCap < minCap {
+			continue
+		}
+		if maxCap > 0 && e.MarketCap > maxCap {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func logf(format string, a ...any) {

@@ -92,9 +92,10 @@ func parseSAEstimates(html string) (*saEstimates, error) {
 
 	eps      := saParseFloats(m[1])
 	dates    := saParseStrings(m[2])
+	revenues := saParseFloats(m[3])
 	analysts := saParseInts(m[4])
 
-	var epsEst float64
+	var epsEst, revEstFromTable float64
 	var reportDate string
 	var analysts0 int
 	n := len(dates)
@@ -105,6 +106,9 @@ func parseSAEstimates(html string) (*saEstimates, error) {
 		if i < len(eps) {
 			epsEst = eps[i]
 		}
+		if i < len(revenues) {
+			revEstFromTable = revenues[i]
+		}
 		reportDate = dates[i]
 		analysts0 = analysts[i]
 		break
@@ -113,36 +117,39 @@ func parseSAEstimates(html string) (*saEstimates, error) {
 		return nil, fmt.Errorf("no forward estimate row found")
 	}
 
-	// ── 2. Stats block: extract revenue estimates and year-ago values ─────────
+	// ── 2. Revenue estimate + year-ago values ─────────────────────────────────
 	//
-	// stockanalysis terminology (quarterly stats):
-	//   revenueThis  = most recently completed quarter
-	//     .last      = same quarter ONE YEAR AGO  ← REV_PREV_YR
-	//     .this      = the completed quarter's actual value
-	//   revenueNext  = the UPCOMING (reporting) quarter
-	//     .last      = one-year-ago value for the upcoming quarter (cross-check)
-	//     .this      = consensus revenue estimate for the upcoming quarter ← REV_EST
+	// Revenue estimate for the upcoming reporting quarter comes from the same
+	// quarterly-table row selected above (first row with analysts > 0). stockanalysis
+	// labels that row as the fiscal quarter that most recently ended / is about to be
+	// reported — which matches what the market cares about pre-earnings.
 	//
-	// We extract from the section after "quarterly:{" to avoid matching the
-	// annual stats block that appears first.
+	// The stats block `revenueThis.last` gives the same-quarter-one-year-ago actual,
+	// used for YoY comparison. `revenueNext.this` is the quarter AFTER the upcoming
+	// one, not what we want for the current report — kept only as a secondary
+	// fallback in case the table cell is paywalled.
 	var revEst, revPrevYear float64
+	revEst = revEstFromTable
 
 	qStatsIdx := strings.Index(html, `quarterly:{eps`)
 	if qStatsIdx == -1 {
-		// fallback: search anywhere
 		qStatsIdx = 0
 	}
 	qStatsBlock := html[qStatsIdx:]
 
-	if nm := saRevenueNextRe.FindStringSubmatch(qStatsBlock); nm != nil {
-		revEst, _ = strconv.ParseFloat(nm[2], 64) // revenueNext.this = upcoming estimate
-	}
 	if nm := saRevenueThisRe.FindStringSubmatch(qStatsBlock); nm != nil {
 		revPrevYear, _ = strconv.ParseFloat(nm[1], 64) // revenueThis.last = year-ago same quarter
 	}
 
 	if revEst == 0 {
-		return nil, fmt.Errorf("revenue estimate not found in stats block")
+		// Table cell was paywalled or missing — fall back to stats block. Note that
+		// revenueNext.this is one quarter too far out, but it's better than nothing.
+		if nm := saRevenueNextRe.FindStringSubmatch(qStatsBlock); nm != nil {
+			revEst, _ = strconv.ParseFloat(nm[2], 64)
+		}
+	}
+	if revEst == 0 {
+		return nil, fmt.Errorf("revenue estimate not found")
 	}
 
 	est := &saEstimates{

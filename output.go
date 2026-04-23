@@ -194,6 +194,23 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 		r.OptionsExpiry, r.ExpectedMove, r.ExpectedMovePct, r.IVAtm,
 		r.PCVol, r.PCoi, r.Skew, r.MaxPain, r.MaxPainVsCurrent, r.HistAvgAbsRxn)
 
+	// ── Material Events ───────────────────────────────────────────────────────
+	if len(r.MaterialEvents) > 0 {
+		fmt.Fprintln(w, "\n  Material Events (last 90 days):")
+		for _, e := range r.MaterialEvents {
+			abnFlag := ""
+			if e.Abnormal {
+				abnFlag = " ◀ abnormal"
+			}
+			retStr := "—"
+			if e.RetPct != 0 {
+				retStr = fmt.Sprintf("%+.1f%%", e.RetPct)
+			}
+			fmt.Fprintf(w, "    %s  %-35s  %s%s\n",
+				e.Date, e.Label+" ("+e.Items+")", retStr, abnFlag)
+		}
+	}
+
 	// ── Past Earnings Reactions ───────────────────────────────────────────────
 	if len(r.EarningsReactions) > 0 {
 		fmt.Fprintln(w, "\n  Past Earnings Reactions:")
