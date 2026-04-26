@@ -127,6 +127,8 @@ func main() {
 	minCapB := flag.Float64("min-cap-b", defaultMinMarketCap/1e9, "Minimum market cap in billions USD (default 10)")
 	maxCapB := flag.Float64("max-cap-b", 0, "Maximum market cap in billions USD (0 = no upper limit)")
 	symbolFlag := flag.String("symbol", "", "Single stock symbol to analyse (skips market-cap filter; from/to optional)")
+	noPeers := flag.Bool("no-peers", false, "Disable sector peer analysis (also: DISABLE_PEERS=1)")
+	noNews := flag.Bool("no-news", false, "Disable material 8-K events analysis (also: DISABLE_NEWS=1)")
 	flag.Parse()
 
 	// Resolve date range.
@@ -211,184 +213,210 @@ func main() {
 			ResultDate:   computeResultDate(e.Date, e.Time),
 		})
 	}
+	prelimMap := make(map[string]EarningsResult, len(preliminary))
+	for _, r := range preliminary {
+		prelimMap[r.Symbol] = r
+	}
 
-	// ── Step 4: Enrich with financial summaries ───────────────────────────────
+	// ── Step 4: Enrich and output ─────────────────────────────────────────────
 	logf("Fetching financial summaries (EPS estimates, revenue history, trends) ...")
 	enricher := NewEnricher()
-	summaries := enricher.EnrichAll(preliminary, calMap, macro)
-
-	// ── Step 5: Assemble final results ────────────────────────────────────────
-	var results []EarningsResult
-	for _, r := range preliminary {
-		s := summaries[r.Symbol]
-		r.FiscalQuarter = s.FiscalQuarter
-		r.EPSEstimate = s.EPSEstimate
-		r.EPSLastYear = s.EPSLastYear
-		r.EPSYoYPct = fmtPct(s.EPSYoYPct)
-		r.RevenueYoYPct = fmtPct(s.RevenueYoYPct)
-		r.History = s.History
-		r.ForwardEPS = s.ForwardEPS
-		if s.EPSPrevQtr != nil {
-			r.EPSPrevQtr = fmt.Sprintf("$%.2f", *s.EPSPrevQtr)
-		} else {
-			r.EPSPrevQtr = "N/A"
-		}
-		r.EPSQoQ = fmtPct(s.EPSQoQPct)
-		if s.RevenuePrevQtr != nil {
-			r.RevPrevQtr = fmt.Sprintf("$%.2fB", *s.RevenuePrevQtr/1e9)
-		} else {
-			r.RevPrevQtr = "N/A"
-		}
-		if s.RevenueEstimate != nil {
-			r.RevEstimate = fmt.Sprintf("$%.2fB", *s.RevenueEstimate/1e9)
-		} else {
-			r.RevEstimate = "N/A"
-		}
-		r.RevQoQ = fmtPct(s.RevenueQoQPct)
-		if s.RevenuePrevYear != nil {
-			r.RevPrevYr = fmt.Sprintf("$%.2fB", *s.RevenuePrevYear/1e9)
-		} else {
-			r.RevPrevYr = "N/A"
-		}
-		r.PE_TTM = fmtRatio(s.PE_TTM)
-		r.PE_Forward = fmtRatio(s.PE_Forward)
-		r.PS = fmtRatio(s.PS)
-		if s.CurrentPrice > 0 {
-			r.CurrentPrice = fmt.Sprintf("$%.2f", s.CurrentPrice)
-		} else {
-			r.CurrentPrice = "N/A"
-		}
-		r.Ret1W = fmtPct(s.Ret1W)
-		r.Ret1M = fmtPct(s.Ret1M)
-		r.Ret6M = fmtPct(s.Ret6M)
-		r.Ret1Y = fmtPct(s.Ret1Y)
-		if s.Institutional != nil {
-			r.InstActivity = s.Institutional.Activity
-			r.InstOwn = fmt.Sprintf("%.2f%%", s.Institutional.InstOwn)
-			r.InstTrans = fmtPct(&s.Institutional.InstTrans)
-			if s.Institutional.ShortFloat > 0 {
-				r.ShortFloat = fmt.Sprintf("%.2f%%", s.Institutional.ShortFloat)
-			} else {
-				r.ShortFloat = "N/A"
-			}
-			if s.Institutional.ShortRatio > 0 {
-				r.ShortRatio = fmt.Sprintf("%.1fd", s.Institutional.ShortRatio)
-			} else {
-				r.ShortRatio = "N/A"
-			}
-		} else {
-			r.InstActivity = "N/A"
-			r.InstOwn = "N/A"
-			r.InstTrans = "N/A"
-			r.ShortFloat = "N/A"
-			r.ShortRatio = "N/A"
-		}
-		if s.Insider != nil {
-			r.InsiderActivity = s.Insider.Activity
-			r.InsiderBuyVal = fmtDollars(s.Insider.BuyValue)
-			r.InsiderSellVal = fmtDollars(s.Insider.SellValue)
-			r.InsiderNetVal = fmtDollars(s.Insider.BuyValue - s.Insider.SellValue)
-			r.InsiderFilings = s.Insider.FilingCount
-		} else {
-			r.InsiderActivity = "N/A"
-			r.InsiderBuyVal = "N/A"
-			r.InsiderSellVal = "N/A"
-			r.InsiderNetVal = "N/A"
-		}
-		r.ConsensusRating = s.ConsensusRating
-		if s.ConsensusRating == "" {
-			r.ConsensusRating = "N/A"
-		}
-		if s.AvgPriceTarget > 0 {
-			r.AvgPriceTarget = fmt.Sprintf("$%.2f", s.AvgPriceTarget)
-		} else {
-			r.AvgPriceTarget = "N/A"
-		}
-		r.PriceTargetUpside = fmtPct(s.PriceTargetUpside)
-		r.AnalystBullish = s.StrongBuy + s.Buy
-		r.AnalystNeutral = s.Hold
-		r.AnalystBearish = s.Sell + s.StrongSell
-		r.AnalystTotal = s.TotalRatings
-		r.EarningsReactions = s.EarningsReactions
-		r.MacroContext = s.MacroContext
-		r.MaterialEvents = s.MaterialEvents
-		r.Peers = s.Peers
-
-		// Derived signals
-		if s.Hi52 > 0 {
-			r.Hi52 = fmt.Sprintf("$%.2f", s.Hi52)
-			r.Lo52 = fmt.Sprintf("$%.2f", s.Lo52)
-			r.PctFrom52Hi = fmtPct(s.PctFrom52Hi)
-			r.PctFrom52Lo = fmtPct(s.PctFrom52Lo)
-		} else {
-			r.Hi52, r.Lo52, r.PctFrom52Hi, r.PctFrom52Lo = "N/A", "N/A", "N/A", "N/A"
-		}
-		if s.RSI14 != nil {
-			r.RSI14 = fmt.Sprintf("%.1f", *s.RSI14)
-		} else {
-			r.RSI14 = "N/A"
-		}
-		if s.ImpliedVsHistRatio != nil {
-			r.ImpliedVsHistRatio = fmt.Sprintf("%.2fx", *s.ImpliedVsHistRatio)
-		} else {
-			r.ImpliedVsHistRatio = "N/A"
-		}
-		if s.BeatRate != nil {
-			r.BeatRate = fmt.Sprintf("%.0f%%", *s.BeatRate*100)
-			r.AvgBeatPct = fmtPct(s.AvgBeatPct)
-		} else {
-			r.BeatRate, r.AvgBeatPct = "N/A", "N/A"
-		}
-		if opt := s.Options; opt != nil {
-			r.OptionsExpiry = opt.Expiry
-			r.ExpectedMove = fmt.Sprintf("±$%.2f", opt.ExpectedMove)
-			r.ExpectedMovePct = fmt.Sprintf("±%.1f%%", opt.ExpectedMovePct)
-			r.IVAtm = fmt.Sprintf("%.1f%%", opt.IVAtm)
-			r.PCVol = fmt.Sprintf("%.2f", opt.PCVol)
-			r.PCoi = fmt.Sprintf("%.2f", opt.PCoi)
-			r.Skew = fmtPct(&opt.Skew)
-			r.MaxPain = fmt.Sprintf("$%.2f", opt.MaxPain)
-			r.MaxPainVsCurrent = fmtPct(&opt.MaxPainVsCurrent)
-			if opt.HistAvgAbsRxn > 0 {
-				r.HistAvgAbsRxn = fmt.Sprintf("±%.1f%%", opt.HistAvgAbsRxn)
-			} else {
-				r.HistAvgAbsRxn = "N/A"
-			}
-		} else {
-			r.OptionsExpiry = "N/A"
-			r.ExpectedMove = "N/A"
-			r.ExpectedMovePct = "N/A"
-			r.IVAtm = "N/A"
-			r.PCVol = "N/A"
-			r.PCoi = "N/A"
-			r.Skew = "N/A"
-			r.MaxPain = "N/A"
-			r.MaxPainVsCurrent = "N/A"
-			r.HistAvgAbsRxn = "N/A"
-		}
-		results = append(results, r)
+	if *noPeers {
+		enricher.cfg.DisablePeers = true
+	}
+	if *noNews {
+		enricher.cfg.DisableNews = true
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].ResultDate != results[j].ResultDate {
-			return results[i].ResultDate < results[j].ResultDate
+	// Assemble each stock as it finishes and forward to the output channel.
+	resultCh := make(chan EarningsResult, len(preliminary))
+	go func() {
+		for es := range enricher.EnrichStream(preliminary, calMap, macro) {
+			resultCh <- assembleResult(prelimMap[es.Symbol], es.Summary)
 		}
-		if results[i].MarketCapB != results[j].MarketCapB {
-			return results[i].MarketCapB > results[j].MarketCapB
-		}
-		return results[i].Symbol < results[j].Symbol
-	})
-
-	logf("Done.\n")
+		close(resultCh)
+	}()
 
 	switch strings.ToLower(*outputFmt) {
-	case "csv":
-		writeCSV(os.Stdout, results)
 	case "json":
+		// JSON requires a complete sorted list before it can be written.
+		var results []EarningsResult
+		for r := range resultCh {
+			results = append(results, r)
+		}
+		sort.Slice(results, func(i, j int) bool {
+			if results[i].ResultDate != results[j].ResultDate {
+				return results[i].ResultDate < results[j].ResultDate
+			}
+			if results[i].MarketCapB != results[j].MarketCapB {
+				return results[i].MarketCapB > results[j].MarketCapB
+			}
+			return results[i].Symbol < results[j].Symbol
+		})
+		logf("Done.\n")
 		writeJSON(os.Stdout, results)
+	case "csv":
+		// Header is written immediately; rows stream as each stock completes.
+		writeCSVStream(os.Stdout, resultCh)
+		logf("Done.\n")
 	default:
-		writeStockCards(os.Stdout, results)
+		// Each stock card is printed as soon as its enrichment finishes.
+		writeTableStream(os.Stdout, resultCh)
+		logf("Done.\n")
 	}
+}
+
+// assembleResult maps a FinancialSummary onto the pre-populated EarningsResult
+// fields that come from the Nasdaq calendar (Symbol, MarketCapB, etc.).
+func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
+	if s == nil {
+		return r
+	}
+	r.FiscalQuarter = s.FiscalQuarter
+	r.EPSEstimate = s.EPSEstimate
+	r.EPSLastYear = s.EPSLastYear
+	r.EPSYoYPct = fmtPct(s.EPSYoYPct)
+	r.RevenueYoYPct = fmtPct(s.RevenueYoYPct)
+	r.History = s.History
+	r.ForwardEPS = s.ForwardEPS
+	if s.EPSPrevQtr != nil {
+		r.EPSPrevQtr = fmt.Sprintf("$%.2f", *s.EPSPrevQtr)
+	} else {
+		r.EPSPrevQtr = "N/A"
+	}
+	r.EPSQoQ = fmtPct(s.EPSQoQPct)
+	if s.RevenuePrevQtr != nil {
+		r.RevPrevQtr = fmt.Sprintf("$%.2fB", *s.RevenuePrevQtr/1e9)
+	} else {
+		r.RevPrevQtr = "N/A"
+	}
+	if s.RevenueEstimate != nil {
+		r.RevEstimate = fmt.Sprintf("$%.2fB", *s.RevenueEstimate/1e9)
+	} else {
+		r.RevEstimate = "N/A"
+	}
+	r.RevQoQ = fmtPct(s.RevenueQoQPct)
+	if s.RevenuePrevYear != nil {
+		r.RevPrevYr = fmt.Sprintf("$%.2fB", *s.RevenuePrevYear/1e9)
+	} else {
+		r.RevPrevYr = "N/A"
+	}
+	r.PE_TTM = fmtRatio(s.PE_TTM)
+	r.PE_Forward = fmtRatio(s.PE_Forward)
+	r.PS = fmtRatio(s.PS)
+	if s.CurrentPrice > 0 {
+		r.CurrentPrice = fmt.Sprintf("$%.2f", s.CurrentPrice)
+	} else {
+		r.CurrentPrice = "N/A"
+	}
+	r.Ret1W = fmtPct(s.Ret1W)
+	r.Ret1M = fmtPct(s.Ret1M)
+	r.Ret6M = fmtPct(s.Ret6M)
+	r.Ret1Y = fmtPct(s.Ret1Y)
+	if s.Institutional != nil {
+		r.InstActivity = s.Institutional.Activity
+		r.InstOwn = fmt.Sprintf("%.2f%%", s.Institutional.InstOwn)
+		r.InstTrans = fmtPct(&s.Institutional.InstTrans)
+		if s.Institutional.ShortFloat > 0 {
+			r.ShortFloat = fmt.Sprintf("%.2f%%", s.Institutional.ShortFloat)
+		} else {
+			r.ShortFloat = "N/A"
+		}
+		if s.Institutional.ShortRatio > 0 {
+			r.ShortRatio = fmt.Sprintf("%.1fd", s.Institutional.ShortRatio)
+		} else {
+			r.ShortRatio = "N/A"
+		}
+	} else {
+		r.InstActivity = "N/A"
+		r.InstOwn = "N/A"
+		r.InstTrans = "N/A"
+		r.ShortFloat = "N/A"
+		r.ShortRatio = "N/A"
+	}
+	if s.Insider != nil {
+		r.InsiderActivity = s.Insider.Activity
+		r.InsiderBuyVal = fmtDollars(s.Insider.BuyValue)
+		r.InsiderSellVal = fmtDollars(s.Insider.SellValue)
+		r.InsiderNetVal = fmtDollars(s.Insider.BuyValue - s.Insider.SellValue)
+		r.InsiderFilings = s.Insider.FilingCount
+	} else {
+		r.InsiderActivity = "N/A"
+		r.InsiderBuyVal = "N/A"
+		r.InsiderSellVal = "N/A"
+		r.InsiderNetVal = "N/A"
+	}
+	r.ConsensusRating = s.ConsensusRating
+	if s.ConsensusRating == "" {
+		r.ConsensusRating = "N/A"
+	}
+	if s.AvgPriceTarget > 0 {
+		r.AvgPriceTarget = fmt.Sprintf("$%.2f", s.AvgPriceTarget)
+	} else {
+		r.AvgPriceTarget = "N/A"
+	}
+	r.PriceTargetUpside = fmtPct(s.PriceTargetUpside)
+	r.AnalystBullish = s.StrongBuy + s.Buy
+	r.AnalystNeutral = s.Hold
+	r.AnalystBearish = s.Sell + s.StrongSell
+	r.AnalystTotal = s.TotalRatings
+	r.EarningsReactions = s.EarningsReactions
+	r.MacroContext = s.MacroContext
+	r.MaterialEvents = s.MaterialEvents
+	r.Peers = s.Peers
+
+	if s.Hi52 > 0 {
+		r.Hi52 = fmt.Sprintf("$%.2f", s.Hi52)
+		r.Lo52 = fmt.Sprintf("$%.2f", s.Lo52)
+		r.PctFrom52Hi = fmtPct(s.PctFrom52Hi)
+		r.PctFrom52Lo = fmtPct(s.PctFrom52Lo)
+	} else {
+		r.Hi52, r.Lo52, r.PctFrom52Hi, r.PctFrom52Lo = "N/A", "N/A", "N/A", "N/A"
+	}
+	if s.RSI14 != nil {
+		r.RSI14 = fmt.Sprintf("%.1f", *s.RSI14)
+	} else {
+		r.RSI14 = "N/A"
+	}
+	if s.ImpliedVsHistRatio != nil {
+		r.ImpliedVsHistRatio = fmt.Sprintf("%.2fx", *s.ImpliedVsHistRatio)
+	} else {
+		r.ImpliedVsHistRatio = "N/A"
+	}
+	if s.BeatRate != nil {
+		r.BeatRate = fmt.Sprintf("%.0f%%", *s.BeatRate*100)
+		r.AvgBeatPct = fmtPct(s.AvgBeatPct)
+	} else {
+		r.BeatRate, r.AvgBeatPct = "N/A", "N/A"
+	}
+	if opt := s.Options; opt != nil {
+		r.OptionsExpiry = opt.Expiry
+		r.ExpectedMove = fmt.Sprintf("±$%.2f", opt.ExpectedMove)
+		r.ExpectedMovePct = fmt.Sprintf("±%.1f%%", opt.ExpectedMovePct)
+		r.IVAtm = fmt.Sprintf("%.1f%%", opt.IVAtm)
+		r.PCVol = fmt.Sprintf("%.2f", opt.PCVol)
+		r.PCoi = fmt.Sprintf("%.2f", opt.PCoi)
+		r.Skew = fmtPct(&opt.Skew)
+		r.MaxPain = fmt.Sprintf("$%.2f", opt.MaxPain)
+		r.MaxPainVsCurrent = fmtPct(&opt.MaxPainVsCurrent)
+		if opt.HistAvgAbsRxn > 0 {
+			r.HistAvgAbsRxn = fmt.Sprintf("±%.1f%%", opt.HistAvgAbsRxn)
+		} else {
+			r.HistAvgAbsRxn = "N/A"
+		}
+	} else {
+		r.OptionsExpiry = "N/A"
+		r.ExpectedMove = "N/A"
+		r.ExpectedMovePct = "N/A"
+		r.IVAtm = "N/A"
+		r.PCVol = "N/A"
+		r.PCoi = "N/A"
+		r.Skew = "N/A"
+		r.MaxPain = "N/A"
+		r.MaxPainVsCurrent = "N/A"
+		r.HistAvgAbsRxn = "N/A"
+	}
+	return r
 }
 
 // filterByMarketCap returns the subset of events whose MarketCap is in

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -47,28 +49,58 @@ type nasdaqCalendarRow struct {
 
 // FetchEarningsCalendar fetches earnings events for every trading day in [from, to].
 // Also returns a map of symbol → nasdaqCalendarRow for enrichment use.
+// Days are fetched concurrently (up to 10 at a time) and reassembled in date order.
 func (c *NasdaqClient) FetchEarningsCalendar(from, to time.Time) ([]EarningsEvent, map[string]nasdaqCalendarRow) {
-	var all []EarningsEvent
-	calMap := make(map[string]nasdaqCalendarRow)
+	type dayResult struct {
+		date time.Time
+		rows []nasdaqRow
+	}
+
+	var (
+		dayResults []dayResult
+		mu         sync.Mutex
+		wg         sync.WaitGroup
+	)
+	sem := make(chan struct{}, 10)
 
 	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
 		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
 			continue
 		}
+		wg.Add(1)
+		go func(date time.Time) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		rows, err := c.fetchDay(d)
-		if err != nil {
-			logf("Warning: failed to fetch earnings for %s: %v", d.Format("2006-01-02"), err)
-			continue
-		}
+			rows, err := c.fetchDay(date)
+			if err != nil {
+				logf("Warning: failed to fetch earnings for %s: %v", date.Format("2006-01-02"), err)
+				return
+			}
+			mu.Lock()
+			dayResults = append(dayResults, dayResult{date, rows})
+			mu.Unlock()
+		}(d)
+	}
+	wg.Wait()
 
-		for _, row := range rows {
+	// Reassemble in chronological order.
+	sort.Slice(dayResults, func(i, j int) bool {
+		return dayResults[i].date.Before(dayResults[j].date)
+	})
+
+	var all []EarningsEvent
+	calMap := make(map[string]nasdaqCalendarRow)
+
+	for _, dr := range dayResults {
+		for _, row := range dr.rows {
 			sym := strings.TrimSpace(row.Symbol)
 			mc, _ := parseMarketCap(row.MarketCap)
 
 			all = append(all, EarningsEvent{
 				Symbol:    sym,
-				Date:      d.Format("2006-01-02"),
+				Date:      dr.date.Format("2006-01-02"),
 				Time:      normalizeNasdaqTime(row.Time),
 				MarketCap: mc,
 				Name:      strings.TrimSpace(row.Name),

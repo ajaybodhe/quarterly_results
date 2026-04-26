@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -185,6 +186,19 @@ type nasdaqForecastResponse struct {
 	} `json:"data"`
 }
 
+// EnrichConfig controls optional expensive features. Both default to enabled (false = not disabled).
+// Override with env vars DISABLE_PEERS=1 / DISABLE_NEWS=1 or CLI flags --no-peers / --no-news.
+type EnrichConfig struct {
+	DisablePeers bool // skip sector-peer analysis
+	DisableNews  bool // skip material 8-K events analysis
+}
+
+// EnrichedSummary is the result produced by EnrichStream for one stock.
+type EnrichedSummary struct {
+	Symbol  string
+	Summary *FinancialSummary
+}
+
 // Enricher fetches and computes financial growth metrics for a list of earnings results.
 type Enricher struct {
 	secClient  *SECClient
@@ -192,10 +206,12 @@ type Enricher struct {
 
 	// Yahoo Finance requires a crumb token tied to a cookie session.
 	// yahooClient holds a cookie jar and is used exclusively for Yahoo API calls.
-	yahooClient      *http.Client
-	yahooCrumb       string
-	yahooCrumbOnce   sync.Once
-	yahooCrumbErr    error
+	yahooClient    *http.Client
+	yahooCrumb     string
+	yahooCrumbOnce sync.Once
+	yahooCrumbErr  error
+
+	cfg EnrichConfig
 }
 
 func NewEnricher() *Enricher {
@@ -204,39 +220,52 @@ func NewEnricher() *Enricher {
 		secClient:   NewSECClient(),
 		httpClient:  &http.Client{Timeout: 30 * time.Second},
 		yahooClient: &http.Client{Timeout: 30 * time.Second, Jar: jar},
+		cfg: EnrichConfig{
+			DisablePeers: os.Getenv("DISABLE_PEERS") == "1",
+			DisableNews:  os.Getenv("DISABLE_NEWS") == "1",
+		},
 	}
 }
 
-// EnrichAll fetches financial summaries for all results concurrently (rate-limited).
+// EnrichStream enriches all results concurrently and sends each completed summary
+// on the returned channel in completion order (not input order). The channel is
+// closed once all stocks have been processed. Callers that need a specific output
+// order should sort after draining the channel.
+func (e *Enricher) EnrichStream(results []EarningsResult, calendarRows map[string]nasdaqCalendarRow, macro *MacroCalendar) <-chan EnrichedSummary {
+	ch := make(chan EnrichedSummary, len(results))
+	go func() {
+		if err := e.secClient.LoadTickerMap(); err != nil {
+			logf("Warning: could not load SEC ticker map: %v", err)
+		}
+		// 5 concurrent stocks — each now fans out its own goroutines internally,
+		// so total concurrency is higher but still bounded per-stock.
+		sem := make(chan struct{}, 5)
+		var wg sync.WaitGroup
+		for _, r := range results {
+			wg.Add(1)
+			go func(res EarningsResult) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				ch <- EnrichedSummary{
+					Symbol:  res.Symbol,
+					Summary: e.buildSummary(res, calendarRows[res.Symbol], macro),
+				}
+			}(r)
+		}
+		wg.Wait()
+		close(ch)
+	}()
+	return ch
+}
+
+// EnrichAll collects all enriched summaries into a map. Use EnrichStream directly
+// when you want to process results as they complete rather than waiting for all.
 func (e *Enricher) EnrichAll(results []EarningsResult, calendarRows map[string]nasdaqCalendarRow, macro *MacroCalendar) map[string]*FinancialSummary {
-	// Pre-load the SEC ticker map once (single HTTP call).
-	if err := e.secClient.LoadTickerMap(); err != nil {
-		logf("Warning: could not load SEC ticker map: %v", err)
-	}
-
 	out := make(map[string]*FinancialSummary, len(results))
-	var mu sync.Mutex
-
-	// SEC allows ≤10 req/s; 5 concurrent goroutines each making 2-3 calls is safe.
-	sem := make(chan struct{}, 5)
-	var wg sync.WaitGroup
-
-	for _, r := range results {
-		wg.Add(1)
-		go func(res EarningsResult) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			summary := e.buildSummary(res, calendarRows[res.Symbol], macro)
-
-			mu.Lock()
-			out[res.Symbol] = summary
-			mu.Unlock()
-		}(r)
+	for es := range e.EnrichStream(results, calendarRows, macro) {
+		out[es.Symbol] = es.Summary
 	}
-
-	wg.Wait()
 	return out
 }
 
@@ -248,31 +277,136 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		FiscalQuarter: row.FiscalQuarterEnding,
 	}
 
-	// YoY EPS from calendar data
-	if s.EPSLastYear != 0 {
-		yoy := pctChange(s.EPSLastYear, s.EPSEstimate)
-		s.EPSYoYPct = &yoy
+	// ── Phase 1: fire all independent fetches in parallel ────────────────────
+	var (
+		forwardEPS    []ForwardQuarter
+		sa            *saEstimates
+		insider       *InsiderSummary
+		institutional *InstitutionalData
+		history       []QuarterActual
+		prices        []pricePoint
+		pricesErr     error
+		vixPrices     []pricePoint
+		options       *OptionsSnapshot
+		peers         []PeerResult
+		rawMatEvents  []MaterialEvent
+	)
+
+	since := time.Now().AddDate(0, -3, 0)
+
+	var p1 sync.WaitGroup
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		forwardEPS, _ = e.fetchForwardEPS(res.Symbol)
+	}()
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		sa, _ = e.fetchSAEstimates(res.Symbol)
+	}()
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		var err error
+		insider, err = e.secClient.FetchInsiderActivity(res.Symbol, since)
+		if err != nil {
+			logf("Warning: insider data unavailable for %s: %v", res.Symbol, err)
+		}
+	}()
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		var err error
+		institutional, err = e.fetchInstitutionalData(res.Symbol)
+		if err != nil {
+			logf("Warning: institutional data unavailable for %s: %v", res.Symbol, err)
+		}
+	}()
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		h, err := e.secClient.FetchQuarterlyActuals(res.Symbol)
+		if err != nil || len(h) < 2 {
+			return
+		}
+		// Enrich with 8-K announcement dates (more accurate than 10-Q filing dates).
+		if announceDates, err2 := e.secClient.FetchEarningsAnnouncementDates(res.Symbol, h); err2 == nil {
+			for i := range h {
+				if ad, ok := announceDates[h[i].Period]; ok {
+					h[i].FilingDate = ad
+				}
+			}
+		}
+		history = h
+	}()
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		prices, pricesErr = e.fetchPriceHistory(res.Symbol)
+	}()
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		vixPrices, _ = e.fetchPriceHistory("^VIX")
+	}()
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		var err error
+		options, err = e.fetchOptionsSnapshot(res.Symbol, res.EarningsDate)
+		if err != nil {
+			logf("Warning: options data unavailable for %s: %v", res.Symbol, err)
+		}
+	}()
+
+	if !e.cfg.DisablePeers {
+		if qEnd, ok := parseFiscalQuarterEnd(row.FiscalQuarterEnding); ok {
+			p1.Add(1)
+			go func() {
+				defer p1.Done()
+				targetSIC, _, _ := e.secClient.FetchEntitySIC(res.Symbol)
+				peers = e.fetchPeers(res.Symbol, targetSIC, qEnd)
+			}()
+		}
 	}
 
-	// Forward EPS estimates from Nasdaq
-	fwd, err := e.fetchForwardEPS(res.Symbol)
-	if err == nil {
-		s.ForwardEPS = fwd
+	if !e.cfg.DisableNews {
+		p1.Add(1)
+		go func() {
+			defer p1.Done()
+			rawMatEvents, _ = e.secClient.FetchMaterialEvents(res.Symbol, since)
+		}()
 	}
 
-	// Consensus revenue estimate + year-ago same-quarter revenue from stockanalysis.com.
+	p1.Wait()
+
+	// ── Phase 2: apply fetched data and compute all derived metrics ───────────
+
+	// --- Forward EPS ---
+	if len(forwardEPS) > 0 {
+		s.ForwardEPS = forwardEPS
+	}
+
+	// --- Stockanalysis estimates + analyst ratings ---
 	// stockanalysis correctly identifies the matching fiscal quarter across 10-Q and 10-K
 	// filings (e.g. fiscal-year-end quarters that are only in 10-K, not 10-Q).
-	if sa, err := e.fetchSAEstimates(res.Symbol); err == nil {
+	if sa != nil {
 		s.RevenueEstimate = &sa.RevenueEst
 		if sa.RevenuePrevYear != 0 {
 			s.RevenuePrevYear = &sa.RevenuePrevYear
 		}
-		// If Nasdaq had no EPS estimate, fall back to stockanalysis value
 		if s.EPSEstimate == 0 && sa.EPSEst != 0 {
 			s.EPSEstimate = sa.EPSEst
 		}
-		// Analyst ratings
 		s.ConsensusRating = sa.ConsensusRating
 		s.StrongBuy = sa.StrongBuy
 		s.Buy = sa.Buy
@@ -283,44 +417,21 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		s.AvgPriceTarget = sa.AvgPriceTarget
 	}
 
-	// Insider activity from SEC Form 4 filings (last 90 days).
-	since := time.Now().AddDate(0, -3, 0)
-	if insider, err := e.secClient.FetchInsiderActivity(res.Symbol, since); err == nil {
-		s.Insider = insider
-	} else {
-		logf("Warning: insider data unavailable for %s: %v", res.Symbol, err)
-	}
+	// --- Insider / institutional ---
+	s.Insider = insider
+	s.Institutional = institutional
 
-	// Institutional ownership from Finviz (covers mutual funds, hedge funds, investment advisors).
-	if inst, err := e.fetchInstitutionalData(res.Symbol); err == nil {
-		s.Institutional = inst
-	} else {
-		logf("Warning: institutional data unavailable for %s: %v", res.Symbol, err)
-	}
-
-	// Historical actuals from SEC EDGAR (all US companies, free).
-	history, err := e.secClient.FetchQuarterlyActuals(res.Symbol)
-	if err == nil && len(history) >= 2 {
-		// Enrich with 8-K announcement dates (more accurate than 10-Q filing dates
-		// for determining when the market first saw the results).
-		if announceDates, err2 := e.secClient.FetchEarningsAnnouncementDates(res.Symbol, history); err2 == nil {
-			for i := range history {
-				if ad, ok := announceDates[history[i].Period]; ok {
-					history[i].FilingDate = ad
-				}
-			}
-		}
+	// --- Historical actuals ---
+	if len(history) >= 2 {
 		s.History = history
 
-		// RevenuePrevYear fallback: if stockanalysis didn't provide it, use history[0].
-		// Note: history[0] may not be the same fiscal quarter — stockanalysis is preferred.
+		// RevenuePrevYear fallback: stockanalysis is preferred; history[0] as backup.
 		oldest := history[0]
 		if s.RevenuePrevYear == nil && oldest.Revenue != 0 {
 			v := oldest.Revenue
 			s.RevenuePrevYear = &v
 		}
 
-		// Previous quarter actuals (most recent completed quarter)
 		last := history[len(history)-1]
 		if last.EPS != 0 {
 			v := last.EPS
@@ -333,8 +444,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 
 		// Override EPSLastYear with the authoritative SEC EDGAR value.
 		// The Nasdaq calendar's lastYearEPS field is unreliable (e.g. off by 10×).
-		// Find the history entry whose period end is closest to one year before the
-		// current fiscal quarter end, within a ±46-day window.
 		if qEnd, ok := parseFiscalQuarterEnd(s.FiscalQuarter); ok {
 			targetYearAgo := qEnd.AddDate(-1, 0, 0)
 			bestDiff := time.Duration(math.MaxInt64)
@@ -354,12 +463,8 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 				}
 			}
 			if bestEPS != 0 {
-				// Only override Nasdaq's lastYearEPS with SEC EDGAR data when:
-				//   1. Nasdaq provided no prior-year EPS (missing data), OR
-				//   2. The ratio is extreme (>4× or <0.25×), indicating a Nasdaq data error
-				//      (e.g. NFLX Q1 2025: Nasdaq returned $0.66, SEC had $6.61 — a 10× error).
-				// When Nasdaq has a valid non-GAAP value within a reasonable range of the SEC
-				// GAAP value, trust Nasdaq — GAAP vs non-GAAP adjustments normally differ by <30%.
+				// Only override when Nasdaq has no value or the ratio is extreme (>4× or <0.25×).
+				// GAAP vs non-GAAP adjustments normally differ by <30%, so trust Nasdaq within range.
 				nasdaqEPS := s.EPSLastYear
 				var absRatio float64
 				if nasdaqEPS != 0 {
@@ -367,18 +472,18 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 				}
 				if nasdaqEPS == 0 || absRatio > 4 || absRatio < 0.25 {
 					s.EPSLastYear = bestEPS
-					// Recompute YoY pct with the corrected value.
-					if s.EPSEstimate != 0 {
-						yoy := pctChange(s.EPSLastYear, s.EPSEstimate)
-						s.EPSYoYPct = &yoy
-					}
 				}
 			}
 		}
 	}
 
+	// YoY EPS — computed once here, after EPSLastYear is finalised.
+	if s.EPSLastYear != 0 && s.EPSEstimate != 0 {
+		yoy := pctChange(s.EPSLastYear, s.EPSEstimate)
+		s.EPSYoYPct = &yoy
+	}
+
 	// YoY Revenue: estimate vs same fiscal quarter last year.
-	// Mirrors EPS_YoY = pctChange(EPSLastYear, EPSEstimate).
 	if s.RevenuePrevYear != nil && *s.RevenuePrevYear != 0 && s.RevenueEstimate != nil && *s.RevenueEstimate != 0 {
 		v := pctChange(*s.RevenuePrevYear, *s.RevenueEstimate)
 		s.RevenueYoYPct = &v
@@ -394,9 +499,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		s.RevenueQoQPct = &v
 	}
 
-	// ── Valuation ratios ─────────────────────────────────────────────────────
-
-	// PS = MarketCap / TTM Revenue (no stock price needed)
+	// --- Valuation ratios (price-independent) ---
 	if len(s.History) >= 4 && res.MarketCapB > 0 {
 		ttmRev := 0.0
 		for _, q := range s.History[len(s.History)-4:] {
@@ -408,7 +511,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		}
 	}
 
-	// TTM EPS = sum of last 4 quarters
 	var ttmEPS float64
 	if len(s.History) >= 4 {
 		for _, q := range s.History[len(s.History)-4:] {
@@ -416,7 +518,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		}
 	}
 
-	// Forward Annual EPS: sum of first 4 ForwardEPS quarters, else EPSEstimate * 4
 	var fwdEPS float64
 	if len(s.ForwardEPS) >= 4 {
 		for _, fq := range s.ForwardEPS[:4] {
@@ -426,27 +527,26 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		fwdEPS = s.EPSEstimate * 4
 	}
 
-	// Fetch 1-year daily price history (used for PE ratios + stock returns).
-	prices, err := e.fetchPriceHistory(res.Symbol)
-	if err != nil || len(prices) == 0 {
-		logf("Warning: price history unavailable for %s: %v", res.Symbol, err)
-		return s
+	// --- Peers ---
+	if len(peers) > 0 {
+		s.Peers = peers
 	}
 
-	// Fetch VIX history for reaction-day macro context (best-effort; failures are non-fatal).
-	vixPrices, _ := e.fetchPriceHistory("^VIX")
+	// No price history → return what we have so far.
+	if pricesErr != nil || len(prices) == 0 {
+		logf("Warning: price history unavailable for %s: %v", res.Symbol, pricesErr)
+		return s
+	}
 
 	current := prices[len(prices)-1].Close
 	now := prices[len(prices)-1].Date
 	s.CurrentPrice = current
 
-	// Price target upside: (avg target - current) / current * 100
 	if s.AvgPriceTarget > 0 {
 		v := pctChange(current, s.AvgPriceTarget)
 		s.PriceTargetUpside = &v
 	}
 
-	// PE(ttm) and PE(forward)
 	if len(s.History) >= 4 && ttmEPS != 0 {
 		v := current / ttmEPS
 		s.PE_TTM = &v
@@ -456,7 +556,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		s.PE_Forward = &v
 	}
 
-	// Stock price returns vs lookback periods
 	for _, lb := range []struct {
 		days  int
 		field **float64
@@ -474,18 +573,11 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 	}
 
 	// ── Earnings reactions (last ≤4 historical quarters) ─────────────────────
-	// For each quarter in History that has a FilingDate, compute the stock's
-	// reaction on the next working day after announcement vs the day before.
 	quarters := s.History
 	if len(quarters) > 4 {
 		quarters = quarters[len(quarters)-4:]
 	}
-	// Build period → QuarterActual lookup for EPS/revenue actuals.
-	quarterByPeriod := make(map[string]QuarterActual, len(quarters))
-	for _, q := range quarters {
-		quarterByPeriod[q.Period] = q
-	}
-	usedAnnounceDates := make(map[string]bool) // dedup guard: skip if same date used twice
+	usedAnnounceDates := make(map[string]bool)
 	for _, q := range quarters {
 		if q.FilingDate == "" {
 			continue
@@ -494,8 +586,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		if err != nil {
 			continue
 		}
-		// Sanity check: announcement must be 10–91 days after period end.
-		// If outside this range the 8-K lookup returned a wrong filing date.
 		periodEnd, perr := time.Parse("2006-01-02", q.Period)
 		if perr == nil {
 			days := int(announceTime.Sub(periodEnd).Hours() / 24)
@@ -504,8 +594,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 				continue
 			}
 		}
-		// Skip duplicate announcement dates (prevents two quarters sharing the same
-		// wrong date from the 8-K lookup producing identical reaction values).
 		if usedAnnounceDates[q.FilingDate] {
 			logf("Warning: skipping reaction for %s period %s — announcement date %s already used for another quarter", res.Symbol, q.Period, q.FilingDate)
 			continue
@@ -513,9 +601,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		usedAnnounceDates[q.FilingDate] = true
 		nextDay := nextWorkingDay(announceTime)
 
-		// Detect BMO vs AMC by comparing opening gaps:
-		//   BMO: earnings released before market open → big gap at announcement-day open
-		//   AMC: earnings released after close → big gap at next-day open
 		dayBeforeClose, okDayBefore := closestPrice(prices, announceTime.AddDate(0, 0, -1))
 		announceDayOpen := openOnDate(prices, announceTime)
 		announceDayClose, _ := closestPrice(prices, announceTime)
@@ -532,12 +617,9 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		var priorClose float64
 		var okPrior bool
 		if isBMO {
-			// BMO: market reacts on the announcement day itself.
 			reactionDay = announceTime
 			priorClose, okPrior = dayBeforeClose, okDayBefore
 		} else {
-			// AMC: market reacts the next working day.
-			// Use announcement-day close as baseline (stock closed before earnings came out).
 			reactionDay = nextDay
 			if announceDayClose > 0 {
 				priorClose, okPrior = announceDayClose, true
@@ -546,7 +628,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			}
 		}
 
-		// Skip if reaction day hasn't happened yet (future quarter).
 		if reactionDay.After(now) {
 			continue
 		}
@@ -554,9 +635,8 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		if !okPrior || !okReact || priorClose == 0 {
 			continue
 		}
-		reactionOpen := openOnDate(prices, reactionDay) // 0 if unavailable
+		reactionOpen := openOnDate(prices, reactionDay)
 
-		// Pre-earnings drift: 7 calendar days before announcement → day before announcement.
 		var pre7Ret *float64
 		var pre7CloseVal float64
 		if pre7Close, ok := closestPrice(prices, announceTime.AddDate(0, 0, -7)); ok && pre7Close != 0 {
@@ -565,8 +645,6 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			pre7CloseVal = pre7Close
 		}
 
-		// Post-earnings drift: reaction day close → 7 calendar days after reaction day.
-		// Skips the immediate reaction day (day +1 after announcement).
 		var post7Ret *float64
 		var post7CloseVal float64
 		post7Target := reactionDay.AddDate(0, 0, 7)
@@ -594,11 +672,9 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			Post7Ret:         post7Ret,
 			Post7Close:       post7CloseVal,
 		}
-		// VIX on reaction day.
 		if vix, ok := closestPrice(vixPrices, reactionDay); ok && vix > 0 {
 			rxn.VIX = vix
 		}
-		// Macro events near this announcement.
 		if macro != nil {
 			nearby := macro.EventsNear(q.FilingDate, 2)
 			rxn.MacroContext = FormatMacroContext(nearby, q.FilingDate)
@@ -612,23 +688,19 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		s.MacroContext = FormatMacroContext(nearby, res.EarningsDate)
 	}
 
-	// ── Pre-earnings options snapshot ────────────────────────────────────────
-	if snap, err := e.fetchOptionsSnapshot(res.Symbol, res.EarningsDate); err == nil {
-		// Attach average historical reaction magnitude for direct comparison with EM%.
+	// ── Options: attach HistAvgAbsRxn now that reactions are known ───────────
+	if options != nil {
 		if len(s.EarningsReactions) > 0 {
 			total := 0.0
 			for _, rxn := range s.EarningsReactions {
 				total += math.Abs(rxn.RetPct)
 			}
-			snap.HistAvgAbsRxn = total / float64(len(s.EarningsReactions))
+			options.HistAvgAbsRxn = total / float64(len(s.EarningsReactions))
 		}
-		s.Options = snap
-	} else {
-		logf("Warning: options data unavailable for %s: %v", res.Symbol, err)
+		s.Options = options
 	}
 
 	// ── Enrich reactions with consensus EPS estimates (Nasdaq calendar) ──────
-	// Fetch all EPS estimates concurrently since each is a separate API call.
 	if len(s.EarningsReactions) > 0 {
 		type epsResult struct {
 			period   string
@@ -666,10 +738,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		}
 	}
 
-	// ── Signal 1: short interest already in s.Institutional (populated by fetchInstitutionalData) ──
-
 	// ── Signal 2: 52-week high/low position + RSI(14) ────────────────────────
-	// Uses the last 252 trading days (≈1 year) from the already-fetched price history.
 	yearAgoTarget := now.AddDate(-1, 0, 0)
 	var hi52, lo52 float64
 	for _, p := range prices {
@@ -685,16 +754,14 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 	}
 	if hi52 > 0 {
 		s.Hi52 = hi52
-		v := pctChange(hi52, current) // negative: current is below high
+		v := pctChange(hi52, current)
 		s.PctFrom52Hi = &v
 	}
 	if lo52 > 0 {
 		s.Lo52 = lo52
-		v := pctChange(lo52, current) // positive: current is above low
+		v := pctChange(lo52, current)
 		s.PctFrom52Lo = &v
 	}
-
-	// RSI(14): Wilder's smoothed moving average of gains vs losses.
 	if len(prices) >= 15 {
 		rsi := computeRSI14(prices)
 		s.RSI14 = &rsi
@@ -728,27 +795,12 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		}
 	}
 
-	// ── Sector peers (same quarter, already reported) ────────────────────────
-	// Derive the target's fiscal quarter end from the FiscalQuarter string
-	// (e.g. "Mar/2026" → 2026-03-31).  Skip if we can't parse the quarter.
-	if qEnd, ok := parseFiscalQuarterEnd(s.FiscalQuarter); ok {
-		targetSIC, _, _ := e.secClient.FetchEntitySIC(res.Symbol)
-		if peers := e.fetchPeers(res.Symbol, targetSIC, qEnd); len(peers) > 0 {
-			s.Peers = peers
-		}
-	}
-
-	// ── Material 8-K events (last 90 days) ────────────────────────────────────
-	// Fetch events and annotate each with the stock's daily return, flagging
-	// abnormal moves (|ret| > 1.5× the 30-day rolling daily standard deviation).
-	matSince := now.AddDate(0, -3, 0)
-	if matEvents, err := e.secClient.FetchMaterialEvents(res.Symbol, matSince); err == nil && len(matEvents) > 0 {
-		// Compute 30-day rolling daily vol from the price history.
+	// ── Material 8-K events: annotate with price reaction ────────────────────
+	if len(rawMatEvents) > 0 {
 		vol30 := dailyVolatility(prices, 30)
 		threshold := 1.5 * vol30
-
-		for i := range matEvents {
-			evDate, perr := time.Parse("2006-01-02", matEvents[i].Date)
+		for i := range rawMatEvents {
+			evDate, perr := time.Parse("2006-01-02", rawMatEvents[i].Date)
 			if perr != nil {
 				continue
 			}
@@ -756,11 +808,11 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			evPrev, okPrev := closestPrice(prices, evDate.AddDate(0, 0, -1))
 			if okClose && okPrev && evPrev != 0 {
 				ret := pctChange(evPrev, evClose)
-				matEvents[i].RetPct = ret
-				matEvents[i].Abnormal = threshold > 0 && math.Abs(ret) > threshold
+				rawMatEvents[i].RetPct = ret
+				rawMatEvents[i].Abnormal = threshold > 0 && math.Abs(ret) > threshold
 			}
 		}
-		s.MaterialEvents = matEvents
+		s.MaterialEvents = rawMatEvents
 	}
 
 	return s
@@ -901,9 +953,16 @@ func (e *Enricher) fetchPriceHistory(symbol string) ([]pricePoint, error) {
 	mid := now.AddDate(0, -9, 0)   // 9 months ago
 	old := now.AddDate(-1, -9, -7) // 21 months ago (covers oldest quarter + pre7 buffer)
 
-	// Two 9-month windows with a small overlap to avoid gaps around the boundary.
-	seg1, err1 := e.fetchPriceHistoryRange(symbol, old, mid.AddDate(0, 0, 14))
-	seg2, err2 := e.fetchPriceHistoryRange(symbol, mid.AddDate(0, 0, -7), now)
+	// Two 9-month windows run in parallel; a small overlap avoids gaps at the boundary.
+	var (
+		seg1, seg2 []pricePoint
+		err1, err2 error
+	)
+	var segWg sync.WaitGroup
+	segWg.Add(2)
+	go func() { defer segWg.Done(); seg1, err1 = e.fetchPriceHistoryRange(symbol, old, mid.AddDate(0, 0, 14)) }()
+	go func() { defer segWg.Done(); seg2, err2 = e.fetchPriceHistoryRange(symbol, mid.AddDate(0, 0, -7), now) }()
+	segWg.Wait()
 
 	if err1 != nil && err2 != nil {
 		return nil, fmt.Errorf("both price history calls failed: %v; %v", err1, err2)

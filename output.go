@@ -9,8 +9,7 @@ import (
 )
 
 
-func writeCSV(w io.Writer, results []EarningsResult) {
-	cw := csv.NewWriter(w)
+func writeCsvHeader(cw *csv.Writer) {
 	_ = cw.Write([]string{
 		"symbol", "company", "market_cap_b", "earnings_date", "earnings_time", "result_date",
 		"fiscal_quarter",
@@ -27,40 +26,74 @@ func writeCSV(w io.Writer, results []EarningsResult) {
 		"pc_vol", "pc_oi", "skew", "max_pain", "max_pain_vs_current", "hist_avg_abs_rxn",
 		"macro_context",
 	})
-	for _, r := range results {
-		periods, revs, eps := "", "", ""
-		for i, q := range r.History {
-			sep := ""
-			if i > 0 {
-				sep = "|"
-			}
-			periods += sep + q.Period
-			revs += sep + fmt.Sprintf("%.2f", q.Revenue/1e9)
-			eps += sep + fmt.Sprintf("%.2f", q.EPS)
+}
+
+func writeCsvRow(cw *csv.Writer, r EarningsResult) {
+	periods, revs, eps := "", "", ""
+	for i, q := range r.History {
+		sep := ""
+		if i > 0 {
+			sep = "|"
 		}
-		_ = cw.Write([]string{
-			r.Symbol, r.CompanyName,
-			fmt.Sprintf("%.2f", r.MarketCapB),
-			r.EarningsDate, r.EarningsTime, r.ResultDate,
-			r.FiscalQuarter,
-			fmt.Sprintf("%.2f", r.EPSEstimate), r.EPSPrevQtr, r.EPSQoQ,
-			fmt.Sprintf("%.2f", r.EPSLastYear), r.EPSYoYPct,
-			r.RevEstimate, r.RevPrevQtr, r.RevQoQ, r.RevPrevYr, r.RevenueYoYPct,
-			periods, revs, eps,
-			r.PE_TTM, r.PE_Forward, r.PS,
-			r.CurrentPrice, r.Ret1W, r.Ret1M, r.Ret6M, r.Ret1Y,
-			r.InstActivity, r.InstOwn, r.InstTrans,
-			r.InsiderActivity, r.InsiderBuyVal, r.InsiderSellVal, r.InsiderNetVal,
-			fmt.Sprintf("%d", r.InsiderFilings),
-			r.ConsensusRating, r.AvgPriceTarget, r.PriceTargetUpside,
-			fmt.Sprintf("%d", r.AnalystBullish), fmt.Sprintf("%d", r.AnalystNeutral),
-			fmt.Sprintf("%d", r.AnalystBearish), fmt.Sprintf("%d", r.AnalystTotal),
-			r.OptionsExpiry, r.ExpectedMove, r.ExpectedMovePct, r.IVAtm,
-			r.PCVol, r.PCoi, r.Skew, r.MaxPain, r.MaxPainVsCurrent, r.HistAvgAbsRxn,
-			r.MacroContext,
-		})
+		periods += sep + q.Period
+		revs += sep + fmt.Sprintf("%.2f", q.Revenue/1e9)
+		eps += sep + fmt.Sprintf("%.2f", q.EPS)
+	}
+	_ = cw.Write([]string{
+		r.Symbol, r.CompanyName,
+		fmt.Sprintf("%.2f", r.MarketCapB),
+		r.EarningsDate, r.EarningsTime, r.ResultDate,
+		r.FiscalQuarter,
+		fmt.Sprintf("%.2f", r.EPSEstimate), r.EPSPrevQtr, r.EPSQoQ,
+		fmt.Sprintf("%.2f", r.EPSLastYear), r.EPSYoYPct,
+		r.RevEstimate, r.RevPrevQtr, r.RevQoQ, r.RevPrevYr, r.RevenueYoYPct,
+		periods, revs, eps,
+		r.PE_TTM, r.PE_Forward, r.PS,
+		r.CurrentPrice, r.Ret1W, r.Ret1M, r.Ret6M, r.Ret1Y,
+		r.InstActivity, r.InstOwn, r.InstTrans,
+		r.InsiderActivity, r.InsiderBuyVal, r.InsiderSellVal, r.InsiderNetVal,
+		fmt.Sprintf("%d", r.InsiderFilings),
+		r.ConsensusRating, r.AvgPriceTarget, r.PriceTargetUpside,
+		fmt.Sprintf("%d", r.AnalystBullish), fmt.Sprintf("%d", r.AnalystNeutral),
+		fmt.Sprintf("%d", r.AnalystBearish), fmt.Sprintf("%d", r.AnalystTotal),
+		r.OptionsExpiry, r.ExpectedMove, r.ExpectedMovePct, r.IVAtm,
+		r.PCVol, r.PCoi, r.Skew, r.MaxPain, r.MaxPainVsCurrent, r.HistAvgAbsRxn,
+		r.MacroContext,
+	})
+}
+
+func writeCSV(w io.Writer, results []EarningsResult) {
+	cw := csv.NewWriter(w)
+	writeCsvHeader(cw)
+	for _, r := range results {
+		writeCsvRow(cw, r)
 	}
 	cw.Flush()
+}
+
+// writeCSVStream writes the CSV header immediately, then streams one row per
+// result as it arrives from ch, flushing after each row.
+func writeCSVStream(w io.Writer, ch <-chan EarningsResult) {
+	cw := csv.NewWriter(w)
+	writeCsvHeader(cw)
+	cw.Flush()
+	for r := range ch {
+		writeCsvRow(cw, r)
+		cw.Flush()
+	}
+}
+
+// writeTableStream prints each stock card as it arrives from ch, without
+// waiting for all stocks to complete.
+func writeTableStream(w io.Writer, ch <-chan EarningsResult) {
+	first := true
+	for r := range ch {
+		if !first {
+			fmt.Fprintln(w)
+		}
+		first = false
+		writeStockCard(w, r)
+	}
 }
 
 func writeJSON(w io.Writer, results []EarningsResult) {
