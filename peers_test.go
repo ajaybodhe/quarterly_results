@@ -453,7 +453,7 @@ func TestFetchPeers_AMC(t *testing.T) {
 		"application/json")
 
 	e := fpEnricher(tr, map[string]int{peerSym: 111111})
-	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"))
+	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"), 50.0)
 
 	if len(peers) != 1 {
 		t.Fatalf("expected 1 peer, got %d", len(peers))
@@ -525,7 +525,7 @@ func TestFetchPeers_BMO(t *testing.T) {
 		"application/json")
 
 	e := fpEnricher(tr, map[string]int{peerSym: 222222})
-	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"))
+	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"), 50.0)
 
 	if len(peers) != 1 {
 		t.Fatalf("expected 1 peer, got %d", len(peers))
@@ -558,7 +558,7 @@ func TestFetchPeers_SkipsTargetSymbol(t *testing.T) {
 	tr.on("calendar/earnings", 200, emptyCalResp(), "application/json")
 
 	e := fpEnricher(tr, map[string]int{})
-	peers := e.fetchPeers(targetSym, 3571, mustDate("2026-03-31"))
+	peers := e.fetchPeers(targetSym, 3571, mustDate("2026-03-31"), 50.0)
 
 	if len(peers) != 0 {
 		t.Errorf("expected 0 peers when target symbol appears in calendar, got %d", len(peers))
@@ -576,7 +576,7 @@ func TestFetchPeers_SkipsDifferentSector(t *testing.T) {
 
 	e := fpEnricher(tr, map[string]int{bankSym: 333333})
 	// Target is tech (SIC 3571, group 8) — bank (group 13) must not appear.
-	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"))
+	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"), 50.0)
 
 	if len(peers) != 0 {
 		t.Errorf("expected 0 peers for different sector, got %d", len(peers))
@@ -586,12 +586,12 @@ func TestFetchPeers_SkipsDifferentSector(t *testing.T) {
 // ─── TestFetchPeers_SkipsSmallCap ────────────────────────────────────────────
 func TestFetchPeers_SkipsSmallCap(t *testing.T) {
 	tr := newMockTransport()
-	// $5B market cap is below the $10B minimum.
+	// $5B peer is below the relative floor (targetCapB=200B → minPeer=max(1,10)=10B).
 	calRoute(tr, "2026-04-15", peerCalResp("SMALL1", "Tiny Corp.", "$5,000,000,000", "time-after-hours", "Mar/2026"))
 	tr.on("calendar/earnings", 200, emptyCalResp(), "application/json")
 
 	e := fpEnricher(tr, map[string]int{})
-	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"))
+	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"), 200.0)
 
 	if len(peers) != 0 {
 		t.Errorf("expected 0 peers below min market cap, got %d", len(peers))
@@ -604,7 +604,7 @@ func TestFetchPeers_EmptyCalendar(t *testing.T) {
 	tr.on("calendar/earnings", 200, emptyCalResp(), "application/json")
 
 	e := fpEnricher(tr, map[string]int{})
-	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"))
+	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"), 50.0)
 
 	if len(peers) != 0 {
 		t.Errorf("expected 0 peers for empty calendar, got %d", len(peers))
@@ -632,7 +632,7 @@ func TestFetchPeers_SkipsNoPeriodMatch(t *testing.T) {
 		"application/json")
 
 	e := fpEnricher(tr, map[string]int{peerSym: 444444})
-	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"))
+	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"), 50.0)
 
 	if len(peers) != 0 {
 		t.Errorf("expected 0 peers when no quarter matches period window, got %d", len(peers))
@@ -671,7 +671,7 @@ func TestFetchPeers_SortsByMarketCap(t *testing.T) {
 		"application/json")
 
 	e := fpEnricher(tr, map[string]int{"PEER1": 111111, "PEER2": 222222})
-	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"))
+	peers := e.fetchPeers("TGT", 3571, mustDate("2026-03-31"), 50.0)
 
 	if len(peers) != 2 {
 		t.Fatalf("expected 2 peers, got %d", len(peers))

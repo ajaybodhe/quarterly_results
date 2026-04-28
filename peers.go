@@ -151,14 +151,24 @@ func (e *Enricher) fetchPeers(
 	targetSymbol string,
 	targetSIC int,
 	targetPeriodEnd time.Time,
+	targetCapB float64,
 ) []PeerResult {
 	const (
-		calWindowDays  = 75  // ± days around targetPeriodEnd to scan for peer reporters
-		periodMatchDays = 70  // max |days| between peer period end and target period end
-		minPeerCapB    = 10.0 // $10B minimum market cap
-		maxCandidates  = 15  // how many top-cap candidates to enrich
-		maxPeers       = 8   // maximum peers to return
+		calWindowDays   = 75 // ± days around targetPeriodEnd to scan for peer reporters
+		periodMatchDays = 45 // max |days| between peer period end and target period end
+		maxCandidates   = 15 // how many top-cap candidates to enrich
+		maxPeers        = 8  // maximum peers to return
+
+		// Relative market cap bounds: peer must be within 0.05×–30× of target.
+		// Floor of $1B avoids data-sparse micro-caps.
+		peerCapMinRatio = 0.05
+		peerCapMaxRatio = 30.0
+		absMinPeerCapB  = 1.0
 	)
+
+	// Derive absolute peer cap bounds from the target's own market cap.
+	minPeerCapB := math.Max(absMinPeerCapB, targetCapB*peerCapMinRatio)
+	maxPeerCapB := targetCapB * peerCapMaxRatio
 
 	nc := &NasdaqClient{httpClient: e.httpClient}
 	from := targetPeriodEnd.AddDate(0, 0, -calWindowDays)
@@ -171,14 +181,14 @@ func (e *Enricher) fetchPeers(
 
 	events, calMap := nc.FetchEarningsCalendar(from, to)
 
-	// Filter: past only, mktcap > $10B, not the target symbol.
+	// Filter: past only, within relative cap band, not the target symbol.
 	today := time.Now().Format("2006-01-02")
 	type candidate struct {
-		sym    string
-		name   string
-		capB   float64
-		date   string
-		time_  string
+		sym   string
+		name  string
+		capB  float64
+		date  string
+		time_ string
 	}
 	var candidates []candidate
 	seen := map[string]bool{}
@@ -189,14 +199,15 @@ func (e *Enricher) fetchPeers(
 		if ev.Date > today {
 			continue // hasn't reported yet
 		}
-		if ev.MarketCap < minPeerCapB*1e9 {
+		capB := ev.MarketCap / 1e9
+		if capB < minPeerCapB || capB > maxPeerCapB {
 			continue
 		}
 		seen[ev.Symbol] = true
 		candidates = append(candidates, candidate{
 			sym:   ev.Symbol,
 			name:  ev.Name,
-			capB:  ev.MarketCap / 1e9,
+			capB:  capB,
 			date:  ev.Date,
 			time_: ev.Time,
 		})

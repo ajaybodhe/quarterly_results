@@ -374,7 +374,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			go func() {
 				defer p1.Done()
 				targetSIC, _, _ := e.secClient.FetchEntitySIC(res.Symbol)
-				peers = e.fetchPeers(res.Symbol, targetSIC, qEnd)
+				peers = e.fetchPeers(res.Symbol, targetSIC, qEnd, res.MarketCapB)
 			}()
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 )
 
@@ -286,8 +287,28 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 			if e.RetPct != 0 {
 				retStr = fmt.Sprintf("%+.1f%%", e.RetPct)
 			}
-			fmt.Fprintf(w, "    %s  %-35s  %s%s\n",
-				e.Date, e.Label+" ("+e.Items+")", retStr, abnFlag)
+			sentStr := ""
+			if e.Sentiment != "" {
+				sentStr = "  [" + e.Sentiment + "]"
+			}
+			label := e.Label + " (" + e.Items + ")"
+			if e.DocDesc != "" && e.DocDesc != "8-K" && e.DocDesc != e.Label {
+				label += " · " + e.DocDesc
+			}
+			fmt.Fprintf(w, "    %s  %-40s  %s%s%s\n",
+				e.Date, label, retStr, abnFlag, sentStr)
+			if e.Snippet != "" {
+				// Trim snippet to 120 chars for table readability; full text is in JSON.
+				snip := e.Snippet
+				if len(snip) > 120 {
+					snip = snip[:120]
+					if i := strings.LastIndex(snip, " "); i > 80 {
+						snip = snip[:i]
+					}
+					snip += "…"
+				}
+				fmt.Fprintf(w, "               %s\n", snip)
+			}
 		}
 	}
 

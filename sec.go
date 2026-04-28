@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -550,11 +551,149 @@ func (c *SECClient) FetchEntitySIC(symbol string) (sic int, sicDesc string, err 
 
 // MaterialEvent is a significant 8-K filing with optional stock-price context.
 type MaterialEvent struct {
-	Date     string  // YYYY-MM-DD (8-K filing date)
-	Items    string  // raw item string, e.g. "2.02,9.01"
-	Label    string  // human-readable label for the most significant item
-	RetPct   float64 // stock return on that date (0 = unavailable)
-	Abnormal bool    // |RetPct| > 1.5× 30-day rolling daily vol
+	Date      string  // YYYY-MM-DD (8-K filing date)
+	Items     string  // raw item string, e.g. "2.02,9.01"
+	Label     string  // human-readable label for the most significant item
+	DocDesc   string  // SEC primary-document description, e.g. "EARNINGS RELEASE"
+	Snippet   string  // first ~400 chars of meaningful text from the 8-K document
+	Sentiment string  // "Positive" / "Negative" / "Neutral" (keyword-based)
+	RetPct    float64 // stock return on that date (0 = unavailable)
+	Abnormal  bool    // |RetPct| > 1.5× 30-day rolling daily vol
+}
+
+// ── 8-K document parsing helpers ─────────────────────────────────────────────
+
+var (
+	re8KStyleScript = regexp.MustCompile(`(?si)<(style|script)[^>]*>.*?</(style|script)>`)
+	re8KHTMLTag     = regexp.MustCompile(`<[^>]{0,500}>`)
+	re8KSpaces      = regexp.MustCompile(`[ \t]{2,}`)
+)
+
+// stripHTMLText removes HTML tags and decodes common entities, returning a
+// normalised single-line string suitable for text analysis.
+func stripHTMLText(raw string) string {
+	s := re8KStyleScript.ReplaceAllString(raw, " ")
+	s = re8KHTMLTag.ReplaceAllString(s, " ")
+	for _, pair := range [][2]string{
+		{"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"},
+		{"&nbsp;", " "}, {"&#160;", " "}, {"&quot;", `"`}, {"&#39;", "'"},
+	} {
+		s = strings.ReplaceAll(s, pair[0], pair[1])
+	}
+	s = re8KSpaces.ReplaceAllString(s, " ")
+	var lines []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) > 4 {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, " ")
+}
+
+// extract8KSnippet locates the start of the substantive press-release body
+// (skipping the SEC cover-page header) and returns up to 400 characters.
+func extract8KSnippet(text string) string {
+	lower := strings.ToLower(text)
+	start := 0
+	for _, marker := range []string{
+		"for immediate release", "press release",
+		"item 2.02", "item 1.01", "item 5.01", "item 5.02", "item 8.01",
+	} {
+		if idx := strings.Index(lower, marker); idx >= 0 {
+			start = idx + len(marker)
+			break
+		}
+	}
+	// No marker: skip the SEC cover page (~500 chars of boilerplate).
+	if start == 0 && len(text) > 600 {
+		start = 500
+	}
+	snippet := strings.TrimSpace(text[start:])
+	const maxLen = 400
+	if len(snippet) > maxLen {
+		snippet = snippet[:maxLen]
+		if i := strings.LastIndex(snippet, " "); i > maxLen-60 {
+			snippet = snippet[:i]
+		}
+		snippet += "…"
+	}
+	return snippet
+}
+
+var (
+	positiveKeywords = []string{
+		"increased", "exceeded", "record", "raised guidance", "strong", "growth",
+		"beat", "outperformed", "higher", "improved", "expanded", "accelerated",
+		"profitable", "gain", "awarded", "approved", "successfully", "milestone",
+		"ahead of", "above expectations", "dividend", "buyback", "repurchase",
+		"new contract", "revenue grew", "partnership",
+	}
+	negativeKeywords = []string{
+		"decreased", "decline", "below", "withdrew", "impairment", "net loss",
+		"missed", "restructuring", "terminated", "bankruptcy", "receivership",
+		"weaker", "reduced guidance", "lowered", "shortfall", "headwind",
+		"investigation", "lawsuit", "violation", "penalty", "fine", "default",
+		"restatement", "material weakness", "going concern", "adverse",
+		"disappointing", "below expectations",
+	}
+)
+
+// scoreSentiment returns "Positive", "Negative", or "Neutral" based on a
+// keyword count over the lower-cased filing text.
+func scoreSentiment(text string) string {
+	lower := strings.ToLower(text)
+	pos, neg := 0, 0
+	for _, kw := range positiveKeywords {
+		if strings.Contains(lower, kw) {
+			pos++
+		}
+	}
+	for _, kw := range negativeKeywords {
+		if strings.Contains(lower, kw) {
+			neg++
+		}
+	}
+	switch {
+	case pos > neg+1:
+		return "Positive"
+	case neg > pos+1:
+		return "Negative"
+	default:
+		return "Neutral"
+	}
+}
+
+// fetchEventDetails downloads the primary 8-K document (capped at 32 KB),
+// strips HTML, and returns a text snippet plus a sentiment label.
+// Returns empty strings on any failure — callers treat this as best-effort.
+func (c *SECClient) fetchEventDetails(cik int, accNum, docFile string) (snippet, sentiment string) {
+	if accNum == "" || docFile == "" {
+		return "", ""
+	}
+	docURL := fmt.Sprintf(
+		"https://www.sec.gov/Archives/edgar/data/%d/%s/%s",
+		cik, accNum, docFile,
+	)
+	req, err := http.NewRequest("GET", docURL, nil)
+	if err != nil {
+		return "", ""
+	}
+	req.Header.Set("User-Agent", secUserAgent)
+	resp, err := c.httpClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return "", ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+	if err != nil {
+		return "", ""
+	}
+	text := stripHTMLText(string(body))
+	return extract8KSnippet(text), scoreSentiment(text)
 }
 
 // form4Doc is the XML structure of an SEC Form 4 filing.
@@ -686,10 +825,10 @@ func item8KLabel(items string) string {
 	return "8-K Filing"
 }
 
-// FetchMaterialEvents returns material 8-K events filed in the last 90 days
-// (or since `since`, whichever is later). Excludes 8-K/A amendments and
-// filings whose only item is "9.01" (standalone financial exhibit attachments).
-// Returns at most 10 events (most-recent first).
+// FetchMaterialEvents returns material 8-K events filed since `since`.
+// Excludes 8-K/A amendments and filings whose only item is "9.01".
+// For each event the 8-K document is fetched concurrently (up to 3 at a time)
+// to extract a text snippet and keyword-based sentiment. Returns at most 10 events.
 func (c *SECClient) FetchMaterialEvents(symbol string, since time.Time) ([]MaterialEvent, error) {
 	cik, err := c.lookupCIK(symbol)
 	if err != nil {
@@ -702,10 +841,17 @@ func (c *SECClient) FetchMaterialEvents(symbol string, since time.Time) ([]Mater
 
 	cutoff := since.Format("2006-01-02")
 	r := subs.Filings.Recent
-	var events []MaterialEvent
+
+	type rawEvent struct {
+		MaterialEvent
+		accNum  string
+		docFile string
+	}
+	var raw []rawEvent
+
 	for i, form := range r.Form {
 		if form != "8-K" {
-			continue // skip 8-K/A amendments and other forms
+			continue
 		}
 		if i >= len(r.FilingDate) {
 			break
@@ -718,19 +864,57 @@ func (c *SECClient) FetchMaterialEvents(symbol string, since time.Time) ([]Mater
 		if i < len(r.Items) {
 			items = strings.TrimSpace(r.Items[i])
 		}
-		// Skip filings that only have "9.01" (financial exhibit with no material event).
+		// Skip filings that only have "9.01" (standalone financial exhibit).
 		if items == "9.01" || items == "" {
 			continue
 		}
-		events = append(events, MaterialEvent{
-			Date:  date,
-			Items: items,
-			Label: item8KLabel(items),
+		accNum := ""
+		if i < len(r.AccessionNumber) {
+			accNum = strings.ReplaceAll(r.AccessionNumber[i], "-", "")
+		}
+		docFile := ""
+		if i < len(r.PrimaryDocument) {
+			docFile = path.Base(r.PrimaryDocument[i])
+		}
+		docDesc := ""
+		if i < len(r.PrimaryDocDesc) {
+			docDesc = strings.TrimSpace(r.PrimaryDocDesc[i])
+		}
+		raw = append(raw, rawEvent{
+			MaterialEvent: MaterialEvent{
+				Date:    date,
+				Items:   items,
+				Label:   item8KLabel(items),
+				DocDesc: docDesc,
+			},
+			accNum:  accNum,
+			docFile: docFile,
 		})
-		if len(events) >= 10 {
+		if len(raw) >= 10 {
 			break
 		}
 	}
+
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	// Fetch each 8-K document concurrently to extract snippet + sentiment.
+	events := make([]MaterialEvent, len(raw))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 3)
+	for i, re := range raw {
+		wg.Add(1)
+		go func(idx int, rv rawEvent) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			ev := rv.MaterialEvent
+			ev.Snippet, ev.Sentiment = c.fetchEventDetails(cik, rv.accNum, rv.docFile)
+			events[idx] = ev
+		}(i, re)
+	}
+	wg.Wait()
 	return events, nil
 }
 
