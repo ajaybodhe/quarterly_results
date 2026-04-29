@@ -63,7 +63,16 @@
       "Bash(wait %1)",
       "Bash(go tool *)",
       "Bash(sort -k3 -n)",
-      "Bash(sort -t: -k3 -n)"
+      "Bash(sort -t: -k3 -n)",
+      "WebFetch(domain:docs.alpaca.markets)",
+      "WebFetch(domain:polygon.io)",
+      "WebFetch(domain:unusualwhales.com)",
+      "WebFetch(domain:documentation.tradier.com)",
+      "WebFetch(domain:datashop.cboe.com)",
+      "WebFetch(domain:data.nasdaq.com)",
+      "WebFetch(domain:massive.com)",
+      "WebFetch(domain:docs.tradier.com)",
+      "WebSearch"
     ]
   }
 }

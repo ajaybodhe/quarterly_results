@@ -260,9 +260,22 @@ func main() {
 		writeCSVStream(os.Stdout, resultCh)
 		logf("Done.\n")
 	default:
-		// Each stock card is printed as soon as its enrichment finishes.
-		writeTableStream(os.Stdout, resultCh)
+		// Collect all results, sort by result-date then market-cap, then print.
+		var results []EarningsResult
+		for r := range resultCh {
+			results = append(results, r)
+		}
+		sort.Slice(results, func(i, j int) bool {
+			if results[i].ResultDate != results[j].ResultDate {
+				return results[i].ResultDate < results[j].ResultDate
+			}
+			if results[i].MarketCapB != results[j].MarketCapB {
+				return results[i].MarketCapB > results[j].MarketCapB
+			}
+			return results[i].Symbol < results[j].Symbol
+		})
 		logf("Done.\n")
+		writeStockCards(os.Stdout, results)
 	}
 }
 

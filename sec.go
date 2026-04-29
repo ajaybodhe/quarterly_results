@@ -37,15 +37,55 @@ var secUserAgent = func() string {
 	return "quarterly-results-tool ajaybodhe@gmail.com"
 }()
 
+// secRateLimiter is a token-bucket rate limiter for SEC EDGAR API calls.
+// It allows a burst of up to `rps` requests, then refills at rps tokens/second.
+type secRateLimiter struct {
+	tokens chan struct{}
+}
+
+func newSecRateLimiter(rps int) *secRateLimiter {
+	rl := &secRateLimiter{tokens: make(chan struct{}, rps)}
+	for i := 0; i < rps; i++ {
+		rl.tokens <- struct{}{} // pre-fill bucket
+	}
+	go func() {
+		t := time.NewTicker(time.Second / time.Duration(rps))
+		defer t.Stop()
+		for range t.C {
+			select {
+			case rl.tokens <- struct{}{}:
+			default: // bucket full
+			}
+		}
+	}()
+	return rl
+}
+
+func (rl *secRateLimiter) Take() {
+	if rl != nil {
+		<-rl.tokens
+	}
+}
+
 type SECClient struct {
 	httpClient *http.Client
 	tickerCIK  map[string]int // upper-case ticker → CIK int
 	mu         sync.Mutex
+
+	// In-memory submissions cache: fetchSubmissions is called 4× per stock
+	// (SIC lookup, quarterly actuals, announcement dates, insider activity,
+	// material events). Caching here eliminates ~75% of SEC submissions calls.
+	subsCache   map[int]*secSubmissionsResponse
+	subsCacheMu sync.Mutex
+
+	rl *secRateLimiter // shared rate limiter: ≤8 req/s to stay under SEC's 10/s cap
 }
 
 func NewSECClient() *SECClient {
 	return &SECClient{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
+		subsCache:  make(map[int]*secSubmissionsResponse),
+		rl:         newSecRateLimiter(8),
 	}
 }
 
@@ -55,7 +95,10 @@ func (c *SECClient) lookupCIK(symbol string) (int, error) {
 	cik, ok := c.tickerCIK[strings.ToUpper(symbol)]
 	c.mu.Unlock()
 	if !ok {
-		return 0, fmt.Errorf("symbol %s not in SEC ticker map", symbol)
+		return 0, fmt.Errorf(
+			"symbol %s not in SEC ticker map (stale cache? delete %s to force refresh)",
+			symbol, tickerCachePath(),
+		)
 	}
 	return cik, nil
 }
@@ -89,7 +132,7 @@ func (c *SECClient) LoadTickerMap() error {
 
 	req, _ := http.NewRequest("GET", "https://www.sec.gov/files/company_tickers.json", nil)
 	req.Header.Set("User-Agent", secUserAgent)
-
+	c.rl.Take()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("SEC ticker map fetch: %w", err)
@@ -99,7 +142,7 @@ func (c *SECClient) LoadTickerMap() error {
 	if resp.StatusCode != http.StatusOK {
 		hint := ""
 		if resp.StatusCode == http.StatusTooManyRequests {
-			hint = " (rate-limited by SEC — wait a few minutes, or set SEC_USER_AGENT='your-name your-email@domain')"
+			hint = " (rate-limited by SEC — wait a few minutes, or override with SEC_USER_AGENT env var)"
 		}
 		return fmt.Errorf("SEC ticker map HTTP %d%s", resp.StatusCode, hint)
 	}
@@ -316,7 +359,7 @@ func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, m
 		return nil, nil, nil, err
 	}
 	req.Header.Set("User-Agent", secUserAgent)
-
+	c.rl.Take()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("HTTP GET: %w", err)
@@ -680,6 +723,7 @@ func (c *SECClient) fetchEventDetails(cik int, accNum, docFile string) (snippet,
 		return "", ""
 	}
 	req.Header.Set("User-Agent", secUserAgent)
+	c.rl.Take()
 	resp, err := c.httpClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
@@ -715,23 +759,43 @@ type form4Txn struct {
 }
 
 // fetchSubmissions fetches the SEC submissions JSON for a given CIK.
-// This contains all recent filings (Form 4, 8-K, 10-Q, etc.).
+// Results are cached in memory for the lifetime of a run — the same CIK is
+// often requested 4+ times (SIC lookup, actuals, announcement dates, insider,
+// material events) and the response is immutable within a single run.
 func (c *SECClient) fetchSubmissions(cik int) (*secSubmissionsResponse, error) {
+	c.subsCacheMu.Lock()
+	if cached, ok := c.subsCache[cik]; ok {
+		c.subsCacheMu.Unlock()
+		return cached, nil
+	}
+	c.subsCacheMu.Unlock()
+
 	subsURL := fmt.Sprintf("https://data.sec.gov/submissions/CIK%010d.json", cik)
 	req, _ := http.NewRequest("GET", subsURL, nil)
 	req.Header.Set("User-Agent", secUserAgent)
+	c.rl.Take()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("submissions fetch: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("submissions HTTP %d", resp.StatusCode)
+		hint := ""
+		if resp.StatusCode == http.StatusTooManyRequests {
+			hint = " (SEC rate limit — wait 30 s or override with SEC_USER_AGENT env var)"
+		}
+		return nil, fmt.Errorf("submissions HTTP %d%s", resp.StatusCode, hint)
 	}
 	var subs secSubmissionsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&subs); err != nil {
 		return nil, fmt.Errorf("submissions decode: %w", err)
 	}
+
+	c.subsCacheMu.Lock()
+	if c.subsCache != nil {
+		c.subsCache[cik] = &subs
+	}
+	c.subsCacheMu.Unlock()
 	return &subs, nil
 }
 
@@ -947,6 +1011,9 @@ func (c *SECClient) FetchInsiderActivity(symbol string, since time.Time) (*Insid
 	var filings []filing
 	r := subs.Filings.Recent
 	for i, form := range r.Form {
+		if i >= len(r.FilingDate) || i >= len(r.AccessionNumber) || i >= len(r.PrimaryDocument) {
+			break
+		}
 		if (form == "4" || form == "4/A") && r.FilingDate[i] >= cutoff {
 			filings = append(filings, filing{
 				accNum:  strings.ReplaceAll(r.AccessionNumber[i], "-", ""),
@@ -979,6 +1046,7 @@ func (c *SECClient) FetchInsiderActivity(symbol string, since time.Time) (*Insid
 			)
 			xreq, _ := http.NewRequest("GET", xmlURL, nil)
 			xreq.Header.Set("User-Agent", secUserAgent)
+			c.rl.Take()
 			xresp, err := c.httpClient.Do(xreq)
 			if err != nil {
 				return
