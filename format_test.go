@@ -170,7 +170,7 @@ func TestComputeResultDate(t *testing.T) {
 		{"not-a-date", "bmo", "not-a-date"}, // parse error passthrough
 	}
 	for _, tc := range cases {
-		got := computeResultDate(tc.date, tc.timing)
+		got := computeResultDate(tc.date, tc.timing, nil)
 		if got != tc.want {
 			t.Errorf("computeResultDate(%q, %q) = %q, want %q", tc.date, tc.timing, got, tc.want)
 		}

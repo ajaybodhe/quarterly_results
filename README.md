@@ -16,7 +16,20 @@ go run . --from 2026-05-04 --to 2026-05-09
 # Single stock, any date range
 go run . --symbol NVDA
 
-# Filter by market cap range
+# International stocks — exchange is auto-detected from the Yahoo Finance suffix
+go run . --symbol VOD.L          # LSE (London)
+go run . --symbol BMW.DE         # FSE / XETRA (Frankfurt)
+go run . --symbol AIR.PA         # Euronext Paris
+
+# Or pass exchange explicitly with a bare ticker
+go run . --symbol VOD --exchange LSE
+go run . --symbol BMW --exchange FSE
+go run . --symbol AIR --exchange EURONEXT
+
+# LSE calendar scan with market-cap filter
+go run . --from 2026-05-04 --to 2026-05-09 --exchange LSE --min-cap-b 5
+
+# Filter by market cap range (US)
 go run . --from 2026-05-04 --to 2026-05-09 --min-cap-b 50 --max-cap-b 500
 
 # CSV or JSON output
@@ -36,20 +49,35 @@ go run . --symbol AAPL --gex
 | `--from YYYY-MM-DD` | required* | Start of earnings date range to scan |
 | `--to YYYY-MM-DD` | required* | End of earnings date range to scan |
 | `--symbol TICKER` | — | Analyse a single stock (skips market-cap filter; `--from`/`--to` optional, defaults to today + 90 days) |
+| `--exchange US\|LSE\|FSE\|EURONEXT` | `US` | Exchange to scan. Auto-detected from ticker suffix (`.L`/`.DE`/`.PA` etc.) when `--symbol` is set. |
 | `--output table\|csv\|json` | `table` | Output format |
 | `--min-cap-b N` | `10` | Minimum market cap in billions USD |
 | `--max-cap-b N` | `0` | Maximum market cap in billions USD (0 = no upper limit) |
-| `--no-peers` | off | Disable sector peer analysis (faster) |
-| `--no-news` | off | Disable material 8-K event fetching (faster) |
+| `--no-peers` | off | Disable sector peer analysis (faster; US-only feature) |
+| `--no-news` | off | Disable material 8-K event fetching (faster; US-only feature) |
 | `--gex` | off | Compute dealer gamma exposure table — **requires `--symbol`** |
 
 *`--from`/`--to` are optional when `--symbol` is set.
+
+### Ticker Conventions
+
+| Market | Example ticker | Yahoo suffix | Notes |
+|---|---|---|---|
+| US (default) | `AAPL` | _(none)_ | NYSE/Nasdaq; SEC EDGAR data |
+| London (LSE) | `VOD.L` | `.L` | Prices in GBP pence (p); reported as GBP |
+| Frankfurt (XETRA) | `BMW.DE` | `.DE` | Prices in EUR |
+| Euronext Paris | `AIR.PA` | `.PA` | Prices in EUR |
+| Euronext Amsterdam | `ASML.AS` | `.AS` | Prices in EUR |
+| Euronext Brussels | `ABI.BR` | `.BR` | Prices in EUR |
+| Euronext Lisbon | `EDP.LS` | `.LS` | Prices in EUR |
+
+The exchange is auto-detected from the suffix when `--symbol` contains one. Use `--exchange` to specify it explicitly with a bare ticker.
 
 ### Environment Variables
 
 | Variable | Description |
 |---|---|
-| `FINNHUB_API_KEY` | Finnhub API key for MSPR. Free tier at [finnhub.io](https://finnhub.io). Without this, MSPR shows N/A. |
+| `FINNHUB_API_KEY` | Override the default Finnhub API key. A working key is already hardcoded; only set this if you want to use your own account. |
 | `SEC_USER_AGENT` | Override the SEC EDGAR User-Agent header. Format: `"Your Name your@email.com"`. Default is `ajaybodhe@gmail.com`. |
 | `DISABLE_PEERS=1` | Disable sector peer analysis (same as `--no-peers`) |
 | `DISABLE_NEWS=1` | Disable material 8-K event fetching (same as `--no-news`) |
@@ -58,7 +86,7 @@ go run . --symbol AAPL --gex
 
 ## Data Sources
 
-### 1. Nasdaq API (`nasdaq.go`)
+### 1. Nasdaq API (`us_calendar.go`) — US only
 **What it provides:**
 - Earnings calendar: symbol, company name, earnings date, timing (BMO/AMC), market cap
 - Current EPS consensus estimate and last-year EPS for the upcoming quarter
@@ -69,7 +97,7 @@ go run . --symbol AAPL --gex
 
 ---
 
-### 2. SEC EDGAR (`sec.go`)
+### 2. SEC EDGAR (`sec.go`) — US only
 **What it provides:**
 - **XBRL quarterly actuals** — reported revenue and EPS for the last 8 quarters, sourced from 10-Q/10-K XBRL filings
 - **8-K announcement dates** — the date each quarterly earnings press release was filed (more accurate than 10-Q filing dates for computing earnings reactions)
@@ -82,52 +110,80 @@ go run . --symbol AAPL --gex
 
 ---
 
-### 3. StockAnalysis.com (`stockanalysis.go`)
+### 3. Finnhub (`finnhub.go` / `finnhub_financials.go` / `intl_calendar.go`) — US + International
+**What it provides:**
+- **MSPR** (Monthly Share Purchase Ratio) — insider buy/sell balance over the last 3 months (all exchanges)
+- **International earnings calendar** — `GET /calendar/earnings` filtered by exchange suffix (LSE/FSE/Euronext)
+- **International quarterly actuals** — revenue + EPS via `GET /stock/financials-reported` (semi-annual for LSE/Euronext, quarterly for FSE)
+- **International insider transactions** — `GET /stock/insider-transactions`
+- **Forward EPS estimates** — `GET /stock/eps-estimates` (next quarters, consensus/high/low)
+
+**Auth:** Free API key hardcoded as default; override with `FINNHUB_API_KEY`. Free tier: 60 calls/min.
+
+---
+
+### 4. Yahoo Finance (`options.go` / `yahoo_price.go`)
+**What it provides:**
+- **Options chain** (US-focused) — full chain for nearest post-earnings expiry; IV, OI, volume per contract
+- **International price history** — `GET /v8/finance/chart/{symbol}?interval=1d&range=2y` for non-US tickers (`.L`, `.DE`, `.PA` etc.)
+- **VIX history** — `^VIX` fetched via same endpoint for US reaction enrichment
+
+**Auth:** Yahoo requires a session cookie + crumb token for the options API. The code fetches these automatically.
+
+---
+
+### 5. StockAnalysis.com (`stockanalysis.go`) — US + some international
 **What it provides:**
 - Revenue consensus estimate for the upcoming quarter
 - Same-quarter-last-year revenue (for YoY computation)
 - Analyst ratings: Strong Buy / Buy / Hold / Sell / Strong Sell counts, consensus rating string
 - Average analyst price target
 
-**Method:** HTML scrape (no API key required).
+**Method:** HTML scrape (no API key required). 404s for unlisted international tickers are handled gracefully.
 
 ---
 
-### 4. Yahoo Finance (`options.go`)
-**What it provides:**
-- Full options chain for the nearest expiry on or after the earnings date
-- Per-contract: strike, bid, ask, last price, implied volatility (0–1 scale), open interest, volume
-- Current stock price (from the options API quote field)
-
-**Auth:** Yahoo requires a session cookie + crumb token. The code automatically fetches these once per run via `fc.yahoo.com` + `/v1/test/getcrumb`.
-
----
-
-### 5. Finviz (`finviz.go`)
+### 6. Finviz (`finviz.go`) — US only
 **What it provides:**
 - Institutional ownership percentage (% of shares held by institutions)
 - Quarter-over-quarter change in institutional ownership
 - Short float (short interest as % of float)
 - Short ratio / days-to-cover
 
-**Method:** HTML scrape of the Finviz snapshot table (no API key required).
-
----
-
-### 6. Finnhub (`finnhub.go`)
-**What it provides:**
-- MSPR (Monthly Share Purchase Ratio) — insider buy/sell balance over the last 3 months
-
-**Auth:** Free API key required. Register at [finnhub.io](https://finnhub.io) and set `FINNHUB_API_KEY`.
+**Method:** HTML scrape of the Finviz snapshot table. Skipped automatically for non-US exchanges.
 
 ---
 
 ### 7. Macro Calendar (`macro.go`)
 **What it provides:**
-- FOMC rate decision dates, FOMC minutes release dates, Non-Farm Payrolls, CPI, PPI releases (2025–2026)
-- Shown as context when a macro event falls within ±2 days of the earnings date or a historical reaction day
+- **US:** FOMC rate decisions, FOMC minutes, Non-Farm Payrolls, CPI, PPI releases (2025–2026)
+- **LSE:** BoE Monetary Policy Committee rate decisions (2025–2026)
+- **FSE / Euronext:** ECB Governing Council rate decisions (2025–2026)
+- US macro events (FOMC/NFP/CPI) are always included even for non-US exchanges — they move global markets
+- Shown as context when an event falls within ±2 days of the earnings date or a historical reaction day
 
 **Method:** Hardcoded (BLS blocks programmatic scraping via WAF). Update the date slices in `macro.go` each January.
+
+---
+
+## Data Availability by Exchange
+
+| Feature | US (NYSE/Nasdaq) | LSE | FSE (XETRA) | Euronext |
+|---|---|---|---|---|
+| Earnings calendar | Nasdaq API | Finnhub | Finnhub | Finnhub |
+| Price history | Nasdaq API | Yahoo Finance | Yahoo Finance | Yahoo Finance |
+| Quarterly actuals (rev/EPS) | SEC EDGAR | Finnhub (semi-annual) | Finnhub (quarterly) | Finnhub (semi-annual) |
+| Forward EPS estimates | Nasdaq forecast API | Finnhub | Finnhub | Finnhub |
+| Revenue estimates + ratings | StockAnalysis.com | StockAnalysis.com* | StockAnalysis.com* | StockAnalysis.com* |
+| Insider activity | SEC Form 4 + Finnhub | Finnhub | Finnhub | Finnhub |
+| Institutional / short data | Finviz | ❌ N/A | ❌ N/A | ❌ N/A |
+| Material 8-K events | SEC EDGAR | ❌ N/A | ❌ N/A | ❌ N/A |
+| Sector peers | SEC SIC codes | ❌ N/A | ❌ N/A | ❌ N/A |
+| Options analytics (IV, GEX) | Yahoo Finance | Limited | ❌ N/A | ❌ N/A |
+| Macro context | FOMC / NFP / CPI | BoE + FOMC | ECB + FOMC | ECB + FOMC |
+| Holiday calendar | NYSE/Nasdaq | LSE bank holidays | XETRA | Euronext |
+
+\* StockAnalysis.com coverage is variable for international tickers; unavailable tickers return N/A gracefully.
 
 ---
 

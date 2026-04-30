@@ -1,14 +1,10 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -112,6 +108,9 @@ type FinancialSummary struct {
 	// Range 0.0–1.0; >0.6 = insiders net buying (Bullish), <0.4 = net selling (Bearish).
 	MSPR       float64 // average over last 3 months; 0 = unavailable
 	MSPRSignal string  // "Bullish", "Neutral", "Bearish", or "N/A"
+
+	// ISO currency code for this stock's exchange (e.g. "USD", "GBP", "EUR").
+	Currency string
 }
 
 // EarningsReaction holds the stock's price reaction to a past quarterly earnings report.
@@ -163,34 +162,6 @@ type pricePoint struct {
 	Close float64
 }
 
-// nasdaqHistoricalResponse is the raw shape from the Nasdaq historical prices API.
-type nasdaqHistoricalResponse struct {
-	Data struct {
-		TradesTable struct {
-			Rows []struct {
-				Date  string `json:"date"`  // "MM/DD/YYYY"
-				Open  string `json:"open"`  // "$123.45"
-				Close string `json:"close"` // "$123.45"
-			} `json:"rows"`
-		} `json:"tradesTable"`
-	} `json:"data"`
-}
-
-// nasdaqForecastResponse is the raw Nasdaq earnings-forecast API shape.
-type nasdaqForecastResponse struct {
-	Data struct {
-		QuarterlyForecast struct {
-			Rows []struct {
-				FiscalEnd            string  `json:"fiscalEnd"`
-				ConsensusEPSForecast float64 `json:"consensusEPSForecast"`
-				HighEPSForecast      float64 `json:"highEPSForecast"`
-				LowEPSForecast       float64 `json:"lowEPSForecast"`
-				NoOfEstimates        int     `json:"noOfEstimates"`
-			} `json:"rows"`
-		} `json:"quarterlyForecast"`
-	} `json:"data"`
-}
-
 // EnrichConfig controls optional expensive features. Both default to enabled (false = not disabled).
 // Override with env vars DISABLE_PEERS=1 / DISABLE_NEWS=1 or CLI flags --no-peers / --no-news.
 type EnrichConfig struct {
@@ -218,28 +189,40 @@ type Enricher struct {
 	yahooCrumbOnce sync.Once
 	yahooCrumbErr  error
 
-	cfg EnrichConfig
+	cfg       EnrichConfig
+	exCfg     ExchangeConfig
+	providers ExchangeProviders
 }
 
 func NewEnricher() *Enricher {
+	return NewEnricherForExchange(defaultUSConfig)
+}
+
+func NewEnricherForExchange(cfg ExchangeConfig) *Enricher {
 	jar, _ := cookiejar.New(nil)
-	return &Enricher{
-		secClient:     NewSECClient(),
-		finnhubClient: NewFinnhubClient(),
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	secClient := NewSECClient()
+	finnhubClient := NewFinnhubClient()
+	e := &Enricher{
+		secClient:     secClient,
+		finnhubClient: finnhubClient,
+		httpClient:    httpClient,
 		yahooClient:   &http.Client{Timeout: 30 * time.Second, Jar: jar},
 		cfg: EnrichConfig{
 			DisablePeers: os.Getenv("DISABLE_PEERS") == "1",
 			DisableNews:  os.Getenv("DISABLE_NEWS") == "1",
 		},
+		exCfg:     cfg,
+		providers: NewProvidersForExchange(cfg, secClient, finnhubClient, httpClient),
 	}
+	return e
 }
 
 // EnrichStream enriches all results concurrently and sends each completed summary
 // on the returned channel in completion order (not input order). The channel is
 // closed once all stocks have been processed. Callers that need a specific output
 // order should sort after draining the channel.
-func (e *Enricher) EnrichStream(results []EarningsResult, calendarRows map[string]nasdaqCalendarRow, macro *MacroCalendar) <-chan EnrichedSummary {
+func (e *Enricher) EnrichStream(results []EarningsResult, calendarRows map[string]CalendarRow, macro *MacroCalendar) <-chan EnrichedSummary {
 	ch := make(chan EnrichedSummary, len(results))
 	go func() {
 		if err := e.secClient.LoadTickerMap(); err != nil {
@@ -269,7 +252,7 @@ func (e *Enricher) EnrichStream(results []EarningsResult, calendarRows map[strin
 
 // EnrichAll collects all enriched summaries into a map. Use EnrichStream directly
 // when you want to process results as they complete rather than waiting for all.
-func (e *Enricher) EnrichAll(results []EarningsResult, calendarRows map[string]nasdaqCalendarRow, macro *MacroCalendar) map[string]*FinancialSummary {
+func (e *Enricher) EnrichAll(results []EarningsResult, calendarRows map[string]CalendarRow, macro *MacroCalendar) map[string]*FinancialSummary {
 	out := make(map[string]*FinancialSummary, len(results))
 	for es := range e.EnrichStream(results, calendarRows, macro) {
 		out[es.Symbol] = es.Summary
@@ -277,12 +260,16 @@ func (e *Enricher) EnrichAll(results []EarningsResult, calendarRows map[string]n
 	return out
 }
 
-func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro *MacroCalendar) *FinancialSummary {
+func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *MacroCalendar) *FinancialSummary {
 	s := &FinancialSummary{
 		Symbol:        res.Symbol,
 		EPSEstimate:   row.EPSForecast,
 		EPSLastYear:   row.LastYearEPS,
 		FiscalQuarter: row.FiscalQuarterEnding,
+		Currency:      e.exCfg.Currency,
+	}
+	if s.Currency == "" {
+		s.Currency = "USD"
 	}
 
 	// ── Phase 1: fire all independent fetches in parallel ────────────────────
@@ -309,7 +296,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 	p1.Add(1)
 	go func() {
 		defer p1.Done()
-		forwardEPS, _ = e.fetchForwardEPS(res.Symbol)
+		forwardEPS, _ = e.providers.Financials.FetchForwardEPS(res.Symbol)
 	}()
 
 	p1.Add(1)
@@ -322,31 +309,32 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 	go func() {
 		defer p1.Done()
 		var err error
-		insider, err = e.secClient.FetchInsiderActivity(res.Symbol, since)
+		insider, err = e.providers.Financials.FetchInsiderActivity(res.Symbol, since)
 		if err != nil {
 			logf("Warning: insider data unavailable for %s: %v", res.Symbol, err)
 		}
 	}()
 
-	p1.Add(1)
-	go func() {
-		defer p1.Done()
-		var err error
-		institutional, err = e.fetchInstitutionalData(res.Symbol)
-		if err != nil {
-			logf("Warning: institutional data unavailable for %s: %v", res.Symbol, err)
-		}
-	}()
+	if e.exCfg.Exchange == ExchangeUS || e.exCfg.Exchange == "" {
+		p1.Add(1)
+		go func() {
+			defer p1.Done()
+			var err error
+			institutional, err = e.fetchInstitutionalData(res.Symbol)
+			if err != nil {
+				logf("Warning: institutional data unavailable for %s: %v", res.Symbol, err)
+			}
+		}()
+	}
 
 	p1.Add(1)
 	go func() {
 		defer p1.Done()
-		h, err := e.secClient.FetchQuarterlyActuals(res.Symbol)
+		h, err := e.providers.Financials.FetchQuarterlyActuals(res.Symbol)
 		if err != nil || len(h) < 2 {
 			return
 		}
-		// Enrich with 8-K announcement dates (more accurate than 10-Q filing dates).
-		if announceDates, err2 := e.secClient.FetchEarningsAnnouncementDates(res.Symbol, h); err2 == nil {
+		if announceDates, err2 := e.providers.Financials.FetchEarningsAnnouncementDates(res.Symbol, h); err2 == nil {
 			for i := range h {
 				if ad, ok := announceDates[h[i].Period]; ok {
 					h[i].FilingDate = ad
@@ -359,13 +347,13 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 	p1.Add(1)
 	go func() {
 		defer p1.Done()
-		prices, pricesErr = e.fetchPriceHistory(res.Symbol)
+		prices, pricesErr = e.providers.Prices.FetchPriceHistory(res.Symbol)
 	}()
 
 	p1.Add(1)
 	go func() {
 		defer p1.Done()
-		vixPrices, _ = e.fetchPriceHistory("^VIX")
+		vixPrices, _ = e.providers.Prices.FetchPriceHistory("^VIX")
 	}()
 
 	p1.Add(1)
@@ -378,22 +366,23 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		}
 	}()
 
-	if !e.cfg.DisablePeers {
+	isUS := e.exCfg.Exchange == ExchangeUS || e.exCfg.Exchange == ""
+	if isUS && !e.cfg.DisablePeers {
 		if qEnd, ok := parseFiscalQuarterEnd(row.FiscalQuarterEnding); ok {
 			p1.Add(1)
 			go func() {
 				defer p1.Done()
-				targetSIC, _, _ := e.secClient.FetchEntitySIC(res.Symbol)
+				targetSIC, _, _ := e.providers.Financials.FetchEntitySIC(res.Symbol)
 				peers = e.fetchPeers(res.Symbol, targetSIC, qEnd, res.MarketCapB)
 			}()
 		}
 	}
 
-	if !e.cfg.DisableNews {
+	if isUS && !e.cfg.DisableNews {
 		p1.Add(1)
 		go func() {
 			defer p1.Done()
-			rawMatEvents, _ = e.secClient.FetchMaterialEvents(res.Symbol, since)
+			rawMatEvents, _ = e.providers.Financials.FetchMaterialEvents(res.Symbol, since)
 		}()
 	}
 
@@ -627,7 +616,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			continue
 		}
 		usedAnnounceDates[q.FilingDate] = true
-		nextDay := nextWorkingDay(announceTime)
+		nextDay := e.providers.Holidays.NextWorkingDay(announceTime)
 
 		dayBeforeClose, okDayBefore := closestPrice(prices, announceTime.AddDate(0, 0, -1))
 		announceDayOpen := openOnDate(prices, announceTime)
@@ -742,7 +731,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 					estCh <- epsResult{r.Period, 0}
 					return
 				}
-				est, err := e.fetchNasdaqEPSEstimate(res.Symbol, t)
+				est, err := e.providers.Prices.FetchHistoricalEPSEstimate(res.Symbol, t)
 				if err != nil {
 					est = 0
 				}
@@ -923,198 +912,6 @@ func computeRSI14(prices []pricePoint) float64 {
 	return 100 - 100/(1+rs)
 }
 
-// fetchForwardEPS calls the Nasdaq analyst earnings-forecast endpoint.
-func (e *Enricher) fetchForwardEPS(symbol string) ([]ForwardQuarter, error) {
-	url := fmt.Sprintf(
-		"https://api.nasdaq.com/api/analyst/%s/earnings-forecast?assetClass=stocks",
-		symbol,
-	)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Referer", "https://www.nasdaq.com/")
-
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body)[:min(80, len(body))])
-	}
-
-	var raw nasdaqForecastResponse
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
-	}
-
-	var out []ForwardQuarter
-	for _, r := range raw.Data.QuarterlyForecast.Rows {
-		out = append(out, ForwardQuarter{
-			FiscalEnd:         r.FiscalEnd,
-			ConsensusEPS:      r.ConsensusEPSForecast,
-			HighEPS:           r.HighEPSForecast,
-			LowEPS:            r.LowEPSForecast,
-			NumberOfEstimates: r.NoOfEstimates,
-		})
-	}
-	return out, nil
-}
-
-// fetchPriceHistory fetches ~18 months of daily closing prices from the Nasdaq historical API.
-// 18 months is needed to cover the full 4-quarter reaction window: the oldest of the last
-// 4 reported quarters can have an announcement ~15 months ago, plus a 7-day pre-earnings
-// lookback, plus a small buffer. For example, LULU reports Q3 results in early December
-// every year; without 18 months the prior December's announcement falls outside the window.
-//
-// The Nasdaq API silently caps results at ~300 rows regardless of the limit parameter.
-// With 18 months (~390 trading days) a single call would drop the oldest ~90 days of data.
-// To work around this, two sequential calls cover 9-month halves, then results are merged.
-// Returns a slice sorted oldest → newest.
-func (e *Enricher) fetchPriceHistory(symbol string) ([]pricePoint, error) {
-	now := time.Now()
-	mid := now.AddDate(0, -9, 0)   // 9 months ago
-	old := now.AddDate(-1, -9, -7) // 21 months ago (covers oldest quarter + pre7 buffer)
-
-	// Two 9-month windows run in parallel; a small overlap avoids gaps at the boundary.
-	var (
-		seg1, seg2 []pricePoint
-		err1, err2 error
-	)
-	var segWg sync.WaitGroup
-	segWg.Add(2)
-	go func() { defer segWg.Done(); seg1, err1 = e.fetchPriceHistoryRange(symbol, old, mid.AddDate(0, 0, 14)) }()
-	go func() { defer segWg.Done(); seg2, err2 = e.fetchPriceHistoryRange(symbol, mid.AddDate(0, 0, -7), now) }()
-	segWg.Wait()
-
-	if err1 != nil && err2 != nil {
-		return nil, fmt.Errorf("both price history calls failed: %v; %v", err1, err2)
-	}
-
-	// Merge segments, dedup by date, sort oldest-first.
-	seen := make(map[string]bool)
-	var merged []pricePoint
-	for _, seg := range [][]pricePoint{seg1, seg2} {
-		for _, p := range seg {
-			key := p.Date.Format("2006-01-02")
-			if !seen[key] {
-				seen[key] = true
-				merged = append(merged, p)
-			}
-		}
-	}
-	if len(merged) == 0 {
-		return nil, fmt.Errorf("no price data returned")
-	}
-	// Sort oldest → newest.
-	for i := 0; i < len(merged)-1; i++ {
-		for j := i + 1; j < len(merged); j++ {
-			if merged[i].Date.After(merged[j].Date) {
-				merged[i], merged[j] = merged[j], merged[i]
-			}
-		}
-	}
-	return merged, nil
-}
-
-// fetchPriceHistoryRange fetches daily closing prices for symbol between from and to.
-// Returns oldest-first. The Nasdaq API returns newest-first; this function reverses the order.
-func (e *Enricher) fetchPriceHistoryRange(symbol string, from, to time.Time) ([]pricePoint, error) {
-	url := fmt.Sprintf(
-		"https://api.nasdaq.com/api/quote/%s/historical?assetClass=stocks&fromdate=%s&limit=300&todate=%s&type=1",
-		symbol, from.Format("2006-01-02"), to.Format("2006-01-02"),
-	)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Referer", "https://www.nasdaq.com/")
-
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body)[:min(80, len(body))])
-	}
-
-	var raw nasdaqHistoricalResponse
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
-	}
-
-	var out []pricePoint
-	for _, row := range raw.Data.TradesTable.Rows {
-		d, err := time.Parse("01/02/2006", row.Date)
-		if err != nil {
-			continue
-		}
-		c := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(row.Close), "$", ""), ",", "")
-		price, err := strconv.ParseFloat(c, 64)
-		if err != nil || price <= 0 {
-			continue
-		}
-		o := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(row.Open), "$", ""), ",", "")
-		openPrice, _ := strconv.ParseFloat(o, 64)
-		out = append(out, pricePoint{Date: d, Open: openPrice, Close: price})
-	}
-	// Nasdaq returns newest-first; reverse to oldest-first.
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return out, nil
-}
-
-
-// fetchNasdaqEPSEstimate queries the Nasdaq earnings calendar for a specific date
-// and returns the consensus EPS estimate for the given symbol on that date.
-// This is used to get the pre-earnings consensus for historical quarters.
-func (e *Enricher) fetchNasdaqEPSEstimate(symbol string, date time.Time) (float64, error) {
-	url := fmt.Sprintf("https://api.nasdaq.com/api/calendar/earnings?date=%s", date.Format("2006-01-02"))
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Origin", "https://www.nasdaq.com")
-	req.Header.Set("Referer", "https://www.nasdaq.com/")
-
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	var raw struct {
-		Data struct {
-			Rows []nasdaqRow `json:"rows"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return 0, err
-	}
-
-	sym := strings.ToUpper(strings.TrimSpace(symbol))
-	for _, row := range raw.Data.Rows {
-		if strings.ToUpper(strings.TrimSpace(row.Symbol)) == sym {
-			return parseEPS(row.EPSForecastRaw), nil
-		}
-	}
-	return 0, fmt.Errorf("symbol %s not in calendar for %s", symbol, date.Format("2006-01-02"))
-}
 
 // parseFiscalQuarterEnd converts a Nasdaq FiscalQuarterEnding string (e.g. "Mar/2026")
 // to the last calendar day of that month. Returns false if the string cannot be parsed.

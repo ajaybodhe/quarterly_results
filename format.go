@@ -89,6 +89,18 @@ func fmtGEX(v float64) string {
 	}
 }
 
+// fmtCurrency formats a value in the given ISO currency with sign prefix: £, €, or $.
+func fmtCurrency(v float64, currency string) string {
+	sym := CurrencySymbol(currency)
+	return fmt.Sprintf("%s%.2f", sym, v)
+}
+
+// fmtCurrencyB formats a value (in raw units) as billions with currency sign.
+func fmtCurrencyB(v float64, currency string) string {
+	sym := CurrencySymbol(currency)
+	return fmt.Sprintf("%s%.2fB", sym, v/1e9)
+}
+
 // fmtRatio formats a *float64 ratio as "23.4x" / "N/A".
 func fmtRatio(p *float64) string {
 	if p == nil {
@@ -124,13 +136,17 @@ func ptr(f float64) *float64 { return &f }
 // BMO ("before market open") results are already reflected in the open price of
 // that day, so the "result date" is the previous working day's close.
 // AMC or unspecified results are reflected at the next open, so same date.
-func computeResultDate(dateStr, earningsTime string) string {
+// cal may be nil, in which case the US calendar is used.
+func computeResultDate(dateStr, earningsTime string, cal HolidayCalendar) string {
 	t, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		return dateStr
 	}
+	if cal == nil {
+		cal = USHolidayCalendar{}
+	}
 	if earningsTime == "bmo" {
-		return prevWorkingDay(t).Format("2006-01-02")
+		return cal.PrevWorkingDay(t).Format("2006-01-02")
 	}
 	return dateStr
 }

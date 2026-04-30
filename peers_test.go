@@ -390,11 +390,15 @@ func peerSubJSON(name, sic, sicDesc, announceDate string) string {
 
 // fpEnricher creates an Enricher wired to the given mock transport.
 func fpEnricher(tr *mockTransport, ciks map[string]int) *Enricher {
+	mc := newMockClient(tr)
+	sec := &SECClient{httpClient: mc, tickerCIK: ciks}
 	return &Enricher{
-		httpClient: newMockClient(tr),
-		secClient: &SECClient{
-			httpClient: newMockClient(tr),
-			tickerCIK:  ciks,
+		httpClient: mc,
+		secClient:  sec,
+		providers: ExchangeProviders{
+			Financials: &SECFinancialsProvider{sec: sec, httpClient: mc},
+			Prices:     &NasdaqPriceProvider{httpClient: mc},
+			Holidays:   USHolidayCalendar{},
 		},
 	}
 }

@@ -108,6 +108,9 @@ type EarningsResult struct {
 	MaxPainVsCurrent string `json:"max_pain_vs_current,omitempty"`
 	HistAvgAbsRxn    string `json:"hist_avg_abs_rxn,omitempty"`
 
+	// Currency code for display (USD, GBP, EUR).
+	Currency string `json:"currency,omitempty"`
+
 	// GEX breakdown (populated only when --gex flag is set)
 	GEX *GEXSnapshot `json:"gex,omitempty"`
 
@@ -137,7 +140,31 @@ func main() {
 	noPeers := flag.Bool("no-peers", false, "Disable sector peer analysis (also: DISABLE_PEERS=1)")
 	noNews := flag.Bool("no-news", false, "Disable material 8-K events analysis (also: DISABLE_NEWS=1)")
 	gexFlag := flag.Bool("gex", false, "Compute dealer gamma exposure table (requires --symbol)")
+	exchangeFlag := flag.String("exchange", "US", "Exchange: US | LSE | FSE | EURONEXT")
+	timingFlag := flag.String("timing", "", "Filter by earnings timing: bmo (before market open) | amc (after market close) | \"\" (all)")
 	flag.Parse()
+
+	exCfg, err := ExchangeConfigByName(*exchangeFlag)
+	if err != nil {
+		log.Fatalf("--exchange: %v", err)
+	}
+
+	filterTiming := strings.ToLower(strings.TrimSpace(*timingFlag))
+	if filterTiming != "" && filterTiming != "bmo" && filterTiming != "amc" {
+		log.Fatalf("--timing must be \"bmo\", \"amc\", or empty (got %q)", filterTiming)
+	}
+
+	// Auto-append Yahoo suffix to bare tickers for non-US exchanges.
+	if *symbolFlag != "" && exCfg.YahooSuffix != "" {
+		*symbolFlag = ToYahooSymbol(*symbolFlag, exCfg)
+	}
+	// If no --exchange but symbol has a known suffix, infer the exchange.
+	if *exchangeFlag == "US" && *symbolFlag != "" {
+		inferred := ExchangeForTicker(*symbolFlag)
+		if inferred.Exchange != ExchangeUS {
+			exCfg = inferred
+		}
+	}
 
 	// Resolve date range.
 	// When --symbol is given without dates, default to today → today+90 days.
@@ -173,9 +200,18 @@ func main() {
 	filterSymbol := strings.ToUpper(strings.TrimSpace(*symbolFlag))
 
 	// ── Step 1: Fetch earnings calendar ─────────────────────────────────────
-	logf("Fetching earnings calendar from Nasdaq.com (%s → %s) ...", *fromStr, *toStr)
-	nc := NewNasdaqClient()
-	events, calMap := nc.FetchEarningsCalendar(from, to)
+	var calProvider CalendarProvider
+	if exCfg.Exchange == ExchangeUS {
+		logf("Fetching earnings calendar from Nasdaq.com (%s → %s) ...", *fromStr, *toStr)
+		calProvider = NewNasdaqClient()
+	} else {
+		logf("Fetching earnings calendar from Finnhub (%s, %s → %s) ...", exCfg.Exchange, *fromStr, *toStr)
+		calProvider = NewFinnhubCalendarClient(NewFinnhubClient(), exCfg)
+	}
+	events, calMap, err := calProvider.FetchEarningsCalendar(from, to)
+	if err != nil {
+		log.Fatalf("Failed to fetch earnings calendar: %v", err)
+	}
 	logf("Total events fetched: %d", len(events))
 
 	// ── Step 2: Filter by symbol or market cap ────────────────────────────────
@@ -205,9 +241,18 @@ func main() {
 		}
 	}
 
+	// ── Step 2a: Filter by earnings timing (BMO / AMC) ───────────────────────
+	if filterTiming != "" {
+		qualified = filterByTiming(qualified, filterTiming)
+		logf("After --timing=%s filter: %d stocks", filterTiming, len(qualified))
+		if len(qualified) == 0 {
+			return
+		}
+	}
+
 	// ── Step 2b: Load macro economic calendar ────────────────────────────────
-	logf("Loading macro economic calendar (FOMC + BLS schedule) ...")
-	macro := LoadMacroCalendar(from, to)
+	logf("Loading macro economic calendar ...")
+	macro := LoadMacroCalendar(from, to, exCfg)
 
 	// ── Step 3: Build preliminary results for enricher input ─────────────────
 	preliminary := make([]EarningsResult, 0, len(qualified))
@@ -218,7 +263,7 @@ func main() {
 			MarketCapB:   e.MarketCap / 1e9,
 			EarningsDate: e.Date,
 			EarningsTime: e.Time,
-			ResultDate:   computeResultDate(e.Date, e.Time),
+			ResultDate:   computeResultDate(e.Date, e.Time, NewHolidayCalendar(exCfg)),
 		})
 	}
 	prelimMap := make(map[string]EarningsResult, len(preliminary))
@@ -228,7 +273,7 @@ func main() {
 
 	// ── Step 4: Enrich and output ─────────────────────────────────────────────
 	logf("Fetching financial summaries (EPS estimates, revenue history, trends) ...")
-	enricher := NewEnricher()
+	enricher := NewEnricherForExchange(exCfg)
 	if *noPeers {
 		enricher.cfg.DisablePeers = true
 	}
@@ -299,6 +344,11 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	if s == nil {
 		return r
 	}
+	cur := s.Currency
+	if cur == "" {
+		cur = "USD"
+	}
+	r.Currency = cur
 	r.FiscalQuarter = s.FiscalQuarter
 	r.EPSEstimate = s.EPSEstimate
 	r.EPSLastYear = s.EPSLastYear
@@ -307,24 +357,24 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	r.History = s.History
 	r.ForwardEPS = s.ForwardEPS
 	if s.EPSPrevQtr != nil {
-		r.EPSPrevQtr = fmt.Sprintf("$%.2f", *s.EPSPrevQtr)
+		r.EPSPrevQtr = fmtCurrency(*s.EPSPrevQtr, cur)
 	} else {
 		r.EPSPrevQtr = "N/A"
 	}
 	r.EPSQoQ = fmtPct(s.EPSQoQPct)
 	if s.RevenuePrevQtr != nil {
-		r.RevPrevQtr = fmt.Sprintf("$%.2fB", *s.RevenuePrevQtr/1e9)
+		r.RevPrevQtr = fmtCurrencyB(*s.RevenuePrevQtr, cur)
 	} else {
 		r.RevPrevQtr = "N/A"
 	}
 	if s.RevenueEstimate != nil {
-		r.RevEstimate = fmt.Sprintf("$%.2fB", *s.RevenueEstimate/1e9)
+		r.RevEstimate = fmtCurrencyB(*s.RevenueEstimate, cur)
 	} else {
 		r.RevEstimate = "N/A"
 	}
 	r.RevQoQ = fmtPct(s.RevenueQoQPct)
 	if s.RevenuePrevYear != nil {
-		r.RevPrevYr = fmt.Sprintf("$%.2fB", *s.RevenuePrevYear/1e9)
+		r.RevPrevYr = fmtCurrencyB(*s.RevenuePrevYear, cur)
 	} else {
 		r.RevPrevYr = "N/A"
 	}
@@ -332,7 +382,7 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	r.PE_Forward = fmtRatio(s.PE_Forward)
 	r.PS = fmtRatio(s.PS)
 	if s.CurrentPrice > 0 {
-		r.CurrentPrice = fmt.Sprintf("$%.2f", s.CurrentPrice)
+		r.CurrentPrice = fmtCurrency(s.CurrentPrice, cur)
 	} else {
 		r.CurrentPrice = "N/A"
 	}
@@ -378,7 +428,7 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 		r.ConsensusRating = "N/A"
 	}
 	if s.AvgPriceTarget > 0 {
-		r.AvgPriceTarget = fmt.Sprintf("$%.2f", s.AvgPriceTarget)
+		r.AvgPriceTarget = fmtCurrency(s.AvgPriceTarget, cur)
 	} else {
 		r.AvgPriceTarget = "N/A"
 	}
@@ -405,8 +455,8 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	}
 
 	if s.Hi52 > 0 {
-		r.Hi52 = fmt.Sprintf("$%.2f", s.Hi52)
-		r.Lo52 = fmt.Sprintf("$%.2f", s.Lo52)
+		r.Hi52 = fmtCurrency(s.Hi52, cur)
+		r.Lo52 = fmtCurrency(s.Lo52, cur)
 		r.PctFrom52Hi = fmtPct(s.PctFrom52Hi)
 		r.PctFrom52Lo = fmtPct(s.PctFrom52Lo)
 	} else {
@@ -430,13 +480,13 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	}
 	if opt := s.Options; opt != nil {
 		r.OptionsExpiry = opt.Expiry
-		r.ExpectedMove = fmt.Sprintf("±$%.2f", opt.ExpectedMove)
+		r.ExpectedMove = fmt.Sprintf("±%s", fmtCurrency(opt.ExpectedMove, cur))
 		r.ExpectedMovePct = fmt.Sprintf("±%.1f%%", opt.ExpectedMovePct)
 		r.IVAtm = fmt.Sprintf("%.1f%%", opt.IVAtm)
 		r.PCVol = fmt.Sprintf("%.2f", opt.PCVol)
 		r.PCoi = fmt.Sprintf("%.2f", opt.PCoi)
 		r.Skew = fmtPct(&opt.Skew)
-		r.MaxPain = fmt.Sprintf("$%.2f", opt.MaxPain)
+		r.MaxPain = fmtCurrency(opt.MaxPain, cur)
 		r.MaxPainVsCurrent = fmtPct(&opt.MaxPainVsCurrent)
 		if opt.HistAvgAbsRxn > 0 {
 			r.HistAvgAbsRxn = fmt.Sprintf("±%.1f%%", opt.HistAvgAbsRxn)
@@ -456,6 +506,18 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 		r.HistAvgAbsRxn = "N/A"
 	}
 	return r
+}
+
+// filterByTiming returns only events whose timing matches the given code ("bmo" or "amc").
+// Events with no timing ("") are excluded when a filter is active.
+func filterByTiming(events []EarningsEvent, timing string) []EarningsEvent {
+	var out []EarningsEvent
+	for _, e := range events {
+		if e.Time == timing {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // filterByMarketCap returns the subset of events whose MarketCap is in

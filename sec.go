@@ -1097,3 +1097,78 @@ func (c *SECClient) FetchInsiderActivity(symbol string, since time.Time) (*Insid
 	}
 	return sum, nil
 }
+
+// ── SECFinancialsProvider ─────────────────────────────────────────────────────
+
+// SECFinancialsProvider implements FinancialsProvider for US stocks.
+// Filing data comes from SEC EDGAR; forward EPS from the Nasdaq forecast API.
+type SECFinancialsProvider struct {
+	sec        *SECClient
+	httpClient *http.Client
+}
+
+func (p *SECFinancialsProvider) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error) {
+	return p.sec.FetchQuarterlyActuals(symbol)
+}
+
+func (p *SECFinancialsProvider) FetchEarningsAnnouncementDates(symbol string, history []QuarterActual) (map[string]string, error) {
+	return p.sec.FetchEarningsAnnouncementDates(symbol, history)
+}
+
+func (p *SECFinancialsProvider) FetchInsiderActivity(symbol string, since time.Time) (*InsiderSummary, error) {
+	return p.sec.FetchInsiderActivity(symbol, since)
+}
+
+func (p *SECFinancialsProvider) FetchMaterialEvents(symbol string, since time.Time) ([]MaterialEvent, error) {
+	return p.sec.FetchMaterialEvents(symbol, since)
+}
+
+func (p *SECFinancialsProvider) FetchEntitySIC(symbol string) (int, string, error) {
+	return p.sec.FetchEntitySIC(symbol)
+}
+
+// FetchForwardEPS calls the Nasdaq analyst earnings-forecast endpoint.
+func (p *SECFinancialsProvider) FetchForwardEPS(symbol string) ([]ForwardQuarter, error) {
+	url := fmt.Sprintf(
+		"https://api.nasdaq.com/api/analyst/%s/earnings-forecast?assetClass=stocks",
+		symbol,
+	)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Referer", "https://www.nasdaq.com/")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		n := len(body)
+		if n > 80 {
+			n = 80
+		}
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body[:n]))
+	}
+
+	var raw nasdaqForecastResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	var out []ForwardQuarter
+	for _, r := range raw.Data.QuarterlyForecast.Rows {
+		out = append(out, ForwardQuarter{
+			FiscalEnd:         r.FiscalEnd,
+			ConsensusEPS:      r.ConsensusEPSForecast,
+			HighEPS:           r.HighEPSForecast,
+			LowEPS:            r.LowEPSForecast,
+			NumberOfEstimates: r.NoOfEstimates,
+		})
+	}
+	return out, nil
+}

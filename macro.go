@@ -150,21 +150,76 @@ var blsPPIDates = []MacroEvent{
 	{"2026-12-11", "PPI", "Producer Price Index", "medium"},
 }
 
+// ecbRateDates are the ECB Governing Council monetary policy decisions.
+// Source: https://www.ecb.europa.eu/press/govcdec/mopo/
+var ecbRateDates = []MacroEvent{
+	// 2025
+	{"2025-01-30", "ECB Rate", "ECB rate decision", "high"},
+	{"2025-03-06", "ECB Rate", "ECB rate decision", "high"},
+	{"2025-04-17", "ECB Rate", "ECB rate decision", "high"},
+	{"2025-06-05", "ECB Rate", "ECB rate decision", "high"},
+	{"2025-07-24", "ECB Rate", "ECB rate decision", "high"},
+	{"2025-09-11", "ECB Rate", "ECB rate decision", "high"},
+	{"2025-10-30", "ECB Rate", "ECB rate decision", "high"},
+	{"2025-12-18", "ECB Rate", "ECB rate decision", "high"},
+	// 2026
+	{"2026-01-29", "ECB Rate", "ECB rate decision", "high"},
+	{"2026-03-05", "ECB Rate", "ECB rate decision", "high"},
+	{"2026-04-16", "ECB Rate", "ECB rate decision", "high"},
+	{"2026-06-04", "ECB Rate", "ECB rate decision", "high"},
+	{"2026-07-23", "ECB Rate", "ECB rate decision", "high"},
+	{"2026-09-10", "ECB Rate", "ECB rate decision", "high"},
+	{"2026-10-29", "ECB Rate", "ECB rate decision", "high"},
+	{"2026-12-17", "ECB Rate", "ECB rate decision", "high"},
+}
+
+// boeRateDates are the Bank of England Monetary Policy Committee decisions.
+// Source: https://www.bankofengland.co.uk/monetary-policy/monetary-policy-committee
+var boeRateDates = []MacroEvent{
+	// 2025
+	{"2025-02-06", "BoE Rate", "BoE rate decision", "high"},
+	{"2025-03-20", "BoE Rate", "BoE rate decision", "high"},
+	{"2025-05-08", "BoE Rate", "BoE rate decision", "high"},
+	{"2025-06-19", "BoE Rate", "BoE rate decision", "high"},
+	{"2025-08-07", "BoE Rate", "BoE rate decision", "high"},
+	{"2025-09-18", "BoE Rate", "BoE rate decision", "high"},
+	{"2025-11-06", "BoE Rate", "BoE rate decision", "high"},
+	{"2025-12-18", "BoE Rate", "BoE rate decision", "high"},
+	// 2026
+	{"2026-02-05", "BoE Rate", "BoE rate decision", "high"},
+	{"2026-03-19", "BoE Rate", "BoE rate decision", "high"},
+	{"2026-05-07", "BoE Rate", "BoE rate decision", "high"},
+	{"2026-06-18", "BoE Rate", "BoE rate decision", "high"},
+	{"2026-08-06", "BoE Rate", "BoE rate decision", "high"},
+	{"2026-09-17", "BoE Rate", "BoE rate decision", "high"},
+	{"2026-11-05", "BoE Rate", "BoE rate decision", "high"},
+	{"2026-12-17", "BoE Rate", "BoE rate decision", "high"},
+}
+
 // MacroCalendar holds all known macro events, indexed by date for fast lookup.
 type MacroCalendar struct {
 	events []MacroEvent
 }
 
-// LoadMacroCalendar builds the macro event calendar from hardcoded FOMC and BLS dates.
-// BLS dates (NFP, CPI, PPI) are hardcoded because bls.gov blocks programmatic access
-// via Akamai WAF. Update the blsNFP/CPI/PPI slices in macro.go each January.
-func LoadMacroCalendar(from, to time.Time) *MacroCalendar {
+// LoadMacroCalendar builds the macro event calendar from hardcoded dates.
+// BLS dates (NFP, CPI, PPI) are hardcoded because bls.gov blocks programmatic access.
+// For non-US exchanges, ECB / BoE rate decisions replace FOMC; US macro events are
+// still included as they move global markets.
+func LoadMacroCalendar(from, to time.Time, cfg ExchangeConfig) *MacroCalendar {
 	cal := &MacroCalendar{}
+	// US macro events are globally relevant — always included.
 	cal.events = append(cal.events, fomcDates...)
 	cal.events = append(cal.events, fomcMinutesDates...)
 	cal.events = append(cal.events, blsNFPDates...)
 	cal.events = append(cal.events, blsCPIDates...)
 	cal.events = append(cal.events, blsPPIDates...)
+	// Add exchange-specific central bank events.
+	switch cfg.Exchange {
+	case ExchangeLSE:
+		cal.events = append(cal.events, boeRateDates...)
+	case ExchangeFSE, ExchangeEuronext:
+		cal.events = append(cal.events, ecbRateDates...)
+	}
 	return cal
 }
 

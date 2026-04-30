@@ -9,7 +9,7 @@ import (
 func TestLoadMacroCalendar_AggregatesAllSources(t *testing.T) {
 	from, _ := time.Parse("2006-01-02", "2025-01-01")
 	to, _ := time.Parse("2006-01-02", "2026-12-31")
-	mc := LoadMacroCalendar(from, to)
+	mc := LoadMacroCalendar(from, to, ExchangeConfig{Exchange: ExchangeUS})
 
 	// Should include at least one event from each of FOMC / NFP / CPI / PPI tables.
 	// Exact count is brittle (tables get updated yearly); check presence by name.

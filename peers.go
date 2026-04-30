@@ -179,7 +179,7 @@ func (e *Enricher) fetchPeers(
 		to = cap
 	}
 
-	events, calMap := nc.FetchEarningsCalendar(from, to)
+	events, calMap, _ := nc.FetchEarningsCalendar(from, to)
 
 	// Filter: past only, within relative cap band, not the target symbol.
 	today := time.Now().Format("2006-01-02")
@@ -289,13 +289,13 @@ func (e *Enricher) fetchPeers(
 			}
 
 			// ── 3. Price history ──────────────────────────────────────────────
-			prices, err := e.fetchPriceHistory(c.sym)
+			prices, err := e.providers.Prices.FetchPriceHistory(c.sym)
 			if err != nil || len(prices) == 0 {
 				return
 			}
 
 			// ── 4. EPS estimate at announcement time ─────────────────────────
-			epsEst, _ := e.fetchNasdaqEPSEstimate(c.sym, annTime)
+			epsEst, _ := e.providers.Prices.FetchHistoricalEPSEstimate(c.sym, annTime)
 
 			// ── 5. Price reaction (BMO/AMC-aware) ─────────────────────────────
 			rxnDay, priorClose, okRxn := reactionDayFor(annTime, c.time_, prices)

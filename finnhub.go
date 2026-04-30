@@ -16,9 +16,15 @@ type FinnhubClient struct {
 	httpClient *http.Client
 }
 
+const defaultFinnhubAPIKey = "d6kt2lhr01qmopd22780d6kt2lhr01qmopd2278g"
+
 func NewFinnhubClient() *FinnhubClient {
+	key := os.Getenv("FINNHUB_API_KEY")
+	if key == "" {
+		key = defaultFinnhubAPIKey
+	}
 	return &FinnhubClient{
-		apiKey:     os.Getenv("FINNHUB_API_KEY"),
+		apiKey:     key,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -92,6 +98,28 @@ func (c *FinnhubClient) FetchMSPR(symbol string) (mspr float64, signal string, e
 
 	avg := sum / float64(count)
 	return avg, msprSignal(avg), nil
+}
+
+// getJSON performs a GET request and JSON-decodes the response body into dst.
+func (c *FinnhubClient) getJSON(url string, dst any) error {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		n := len(body)
+		if n > 80 {
+			n = 80
+		}
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body[:n]))
+	}
+	return json.NewDecoder(resp.Body).Decode(dst)
 }
 
 func msprSignal(mspr float64) string {
