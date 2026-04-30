@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -27,7 +28,26 @@ type OptionsSnapshot struct {
 	TotalPutOI       int
 	TotalCallVol     int
 	TotalPutVol      int
-	HistAvgAbsRxn    float64 // average |RXN_RET| across historical quarters (%) — for comparison
+	HistAvgAbsRxn    float64      // average |RXN_RET| across historical quarters (%) — for comparison
+	GEX              *GEXSnapshot // populated only when --gex flag is set
+}
+
+// GEXSnapshot holds dealer gamma exposure computed from the options chain.
+// GEX = Σ (γ_call × OI_call − γ_put × OI_put) × 100 × spot.
+// Positive GEX: dealers are long gamma → dampen moves (buy dips, sell rallies).
+// Negative GEX: dealers are short gamma → amplify moves (chase the direction).
+type GEXSnapshot struct {
+	NetGEX   float64      // total net GEX in USD
+	Signal   string       // "Positive (dampening)" or "Negative (amplifying)"
+	ByStrike []GEXByStrike // top 15 strikes by |NetGEX|, sorted descending
+}
+
+// GEXByStrike is one row in the GEX by-strike breakdown.
+type GEXByStrike struct {
+	Strike  float64
+	CallGEX float64
+	PutGEX  float64
+	NetGEX  float64
 }
 
 // yahooOption is one contract row from the Yahoo Finance options API.
@@ -114,6 +134,7 @@ func (e *Enricher) fetchOptionsSnapshot(symbol, earningsDateStr string) (*Option
 	}
 
 	snap := &OptionsSnapshot{Expiry: expiryDate}
+	// GEX is computed below once calls/puts are available, gated by e.cfg.ComputeGEX.
 
 	// ── Aggregate totals ──────────────────────────────────────────────────────
 	for _, c := range calls {
@@ -163,7 +184,98 @@ func (e *Enricher) fetchOptionsSnapshot(symbol, earningsDateStr string) (*Option
 		snap.MaxPainVsCurrent = (snap.MaxPain - currentPrice) / currentPrice * 100
 	}
 
+	if e.cfg.ComputeGEX {
+		snap.GEX = computeGEX(calls, puts, currentPrice, expiryDate)
+	}
+
 	return snap, nil
+}
+
+// bsGamma computes the Black-Scholes gamma for a European option.
+// spot = current price, strike K, annualised IV σ, time-to-expiry T (in years).
+// Uses risk-free rate r = 0.05.
+func bsGamma(spot, strike, iv, T float64) float64 {
+	if iv <= 0 || T <= 0 || spot <= 0 || strike <= 0 {
+		return 0
+	}
+	const r = 0.05
+	d1 := (math.Log(spot/strike) + (r+0.5*iv*iv)*T) / (iv * math.Sqrt(T))
+	pdf := math.Exp(-0.5*d1*d1) / math.Sqrt(2*math.Pi)
+	return pdf / (spot * iv * math.Sqrt(T))
+}
+
+// computeGEX calculates dealer gamma exposure from the options chain.
+// Each contract contributes 100 shares × gamma × OI × spot to the total GEX.
+// Positive = dealers long gamma (dampens moves); negative = short gamma (amplifies moves).
+func computeGEX(calls, puts []yahooOption, spot float64, expiryDate string) *GEXSnapshot {
+	expiry, err := time.Parse("2006-01-02", expiryDate)
+	if err != nil {
+		return nil
+	}
+	T := time.Until(expiry).Hours() / (24 * 365.25)
+	if T <= 0 {
+		T = 1.0 / 365.25
+	}
+
+	type strikeAccum struct {
+		callGEX float64
+		putGEX  float64
+	}
+	strikeMap := make(map[float64]*strikeAccum, len(calls)+len(puts))
+
+	for _, c := range calls {
+		iv := cleanIV(c.ImpliedVolatility)
+		if iv == 0 || c.OpenInterest == 0 {
+			continue
+		}
+		g := bsGamma(spot, c.Strike, iv, T)
+		gex := g * float64(c.OpenInterest) * 100 * spot
+		if strikeMap[c.Strike] == nil {
+			strikeMap[c.Strike] = &strikeAccum{}
+		}
+		strikeMap[c.Strike].callGEX += gex
+	}
+
+	for _, p := range puts {
+		iv := cleanIV(p.ImpliedVolatility)
+		if iv == 0 || p.OpenInterest == 0 {
+			continue
+		}
+		g := bsGamma(spot, p.Strike, iv, T)
+		gex := g * float64(p.OpenInterest) * 100 * spot
+		if strikeMap[p.Strike] == nil {
+			strikeMap[p.Strike] = &strikeAccum{}
+		}
+		strikeMap[p.Strike].putGEX += gex
+	}
+
+	var rows []GEXByStrike
+	var netGEX float64
+	for strike, a := range strikeMap {
+		net := a.callGEX - a.putGEX
+		netGEX += net
+		rows = append(rows, GEXByStrike{Strike: strike, CallGEX: a.callGEX, PutGEX: a.putGEX, NetGEX: net})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	// Sort by |NetGEX| descending; keep top 15 strikes for the table.
+	sort.Slice(rows, func(i, j int) bool {
+		return math.Abs(rows[i].NetGEX) > math.Abs(rows[j].NetGEX)
+	})
+	if len(rows) > 15 {
+		rows = rows[:15]
+	}
+	// Re-sort top 15 by strike ascending for readability.
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Strike < rows[j].Strike })
+
+	signal := "Positive (dampening)"
+	if netGEX < 0 {
+		signal = "Negative (amplifying)"
+	}
+
+	return &GEXSnapshot{NetGEX: netGEX, Signal: signal, ByStrike: rows}
 }
 
 // ensureYahooCrumb fetches a Yahoo Finance session cookie + crumb (done once, cached).

@@ -69,6 +69,26 @@ func fmtDollars(v float64) string {
 	return fmt.Sprintf("$%.0fK", v/1_000)
 }
 
+// fmtGEX formats a GEX value (in USD) as "$1.23B", "$450M", "$12M", etc.
+// GEX values for large-caps are typically in the hundreds of millions to billions.
+func fmtGEX(v float64) string {
+	abs := math.Abs(v)
+	sign := ""
+	if v < 0 {
+		sign = "-"
+	}
+	switch {
+	case abs >= 1e9:
+		return fmt.Sprintf("%s$%.2fB", sign, abs/1e9)
+	case abs >= 1e6:
+		return fmt.Sprintf("%s$%.1fM", sign, abs/1e6)
+	case abs >= 1e3:
+		return fmt.Sprintf("%s$%.0fK", sign, abs/1e3)
+	default:
+		return fmt.Sprintf("%s$%.0f", sign, abs)
+	}
+}
+
 // fmtRatio formats a *float64 ratio as "23.4x" / "N/A".
 func fmtRatio(p *float64) string {
 	if p == nil {

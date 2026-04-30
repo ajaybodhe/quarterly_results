@@ -107,6 +107,11 @@ type FinancialSummary struct {
 
 	// Sector peers that already reported results for the same fiscal quarter.
 	Peers []PeerResult
+
+	// MSPR (Monthly Share Purchase Ratio) from Finnhub insider-sentiment API.
+	// Range 0.0–1.0; >0.6 = insiders net buying (Bullish), <0.4 = net selling (Bearish).
+	MSPR       float64 // average over last 3 months; 0 = unavailable
+	MSPRSignal string  // "Bullish", "Neutral", "Bearish", or "N/A"
 }
 
 // EarningsReaction holds the stock's price reaction to a past quarterly earnings report.
@@ -191,6 +196,7 @@ type nasdaqForecastResponse struct {
 type EnrichConfig struct {
 	DisablePeers bool // skip sector-peer analysis
 	DisableNews  bool // skip material 8-K events analysis
+	ComputeGEX   bool // compute dealer gamma exposure (requires --gex + --symbol)
 }
 
 // EnrichedSummary is the result produced by EnrichStream for one stock.
@@ -201,8 +207,9 @@ type EnrichedSummary struct {
 
 // Enricher fetches and computes financial growth metrics for a list of earnings results.
 type Enricher struct {
-	secClient  *SECClient
-	httpClient *http.Client
+	secClient      *SECClient
+	httpClient     *http.Client
+	finnhubClient  *FinnhubClient
 
 	// Yahoo Finance requires a crumb token tied to a cookie session.
 	// yahooClient holds a cookie jar and is used exclusively for Yahoo API calls.
@@ -217,9 +224,10 @@ type Enricher struct {
 func NewEnricher() *Enricher {
 	jar, _ := cookiejar.New(nil)
 	return &Enricher{
-		secClient:   NewSECClient(),
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
-		yahooClient: &http.Client{Timeout: 30 * time.Second, Jar: jar},
+		secClient:     NewSECClient(),
+		finnhubClient: NewFinnhubClient(),
+		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		yahooClient:   &http.Client{Timeout: 30 * time.Second, Jar: jar},
 		cfg: EnrichConfig{
 			DisablePeers: os.Getenv("DISABLE_PEERS") == "1",
 			DisableNews:  os.Getenv("DISABLE_NEWS") == "1",
@@ -290,6 +298,8 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 		options       *OptionsSnapshot
 		peers         []PeerResult
 		rawMatEvents  []MaterialEvent
+		mspr          float64
+		msprSignal    string
 	)
 
 	since := time.Now().AddDate(0, -3, 0)
@@ -386,6 +396,17 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 			rawMatEvents, _ = e.secClient.FetchMaterialEvents(res.Symbol, since)
 		}()
 	}
+
+	p1.Add(1)
+	go func() {
+		defer p1.Done()
+		var err error
+		mspr, msprSignal, err = e.finnhubClient.FetchMSPR(res.Symbol)
+		if err != nil {
+			msprSignal = "N/A"
+			logf("Warning: MSPR unavailable for %s: %v", res.Symbol, err)
+		}
+	}()
 
 	p1.Wait()
 
@@ -530,6 +551,13 @@ func (e *Enricher) buildSummary(res EarningsResult, row nasdaqCalendarRow, macro
 	// --- Peers ---
 	if len(peers) > 0 {
 		s.Peers = peers
+	}
+
+	// --- MSPR ---
+	s.MSPR = mspr
+	s.MSPRSignal = msprSignal
+	if s.MSPRSignal == "" {
+		s.MSPRSignal = "N/A"
 	}
 
 	// No price history → return what we have so far.

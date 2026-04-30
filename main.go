@@ -89,6 +89,10 @@ type EarningsResult struct {
 	BeatRate           string `json:"beat_rate,omitempty"`
 	AvgBeatPct         string `json:"avg_beat_pct,omitempty"`
 
+	// ── MSPR (Monthly Share Purchase Ratio from Finnhub) ─────────────────────
+	MSPR       string `json:"mspr,omitempty"`        // formatted, e.g. "0.72"
+	MSPRSignal string `json:"mspr_signal,omitempty"` // "Bullish", "Neutral", "Bearish", or "N/A"
+
 	// ── Macro context (scheduled events ±2 days of earnings date) ────────────
 	MacroContext string `json:"macro_context,omitempty"`
 
@@ -103,6 +107,9 @@ type EarningsResult struct {
 	MaxPain          string `json:"max_pain,omitempty"`
 	MaxPainVsCurrent string `json:"max_pain_vs_current,omitempty"`
 	HistAvgAbsRxn    string `json:"hist_avg_abs_rxn,omitempty"`
+
+	// GEX breakdown (populated only when --gex flag is set)
+	GEX *GEXSnapshot `json:"gex,omitempty"`
 
 	// Full quarterly history for JSON/CSV output
 	History []QuarterActual `json:"history,omitempty"`
@@ -129,6 +136,7 @@ func main() {
 	symbolFlag := flag.String("symbol", "", "Single stock symbol to analyse (skips market-cap filter; from/to optional)")
 	noPeers := flag.Bool("no-peers", false, "Disable sector peer analysis (also: DISABLE_PEERS=1)")
 	noNews := flag.Bool("no-news", false, "Disable material 8-K events analysis (also: DISABLE_NEWS=1)")
+	gexFlag := flag.Bool("gex", false, "Compute dealer gamma exposure table (requires --symbol)")
 	flag.Parse()
 
 	// Resolve date range.
@@ -226,6 +234,12 @@ func main() {
 	}
 	if *noNews {
 		enricher.cfg.DisableNews = true
+	}
+	if *gexFlag {
+		if filterSymbol == "" {
+			log.Fatal("--gex requires --symbol to be set")
+		}
+		enricher.cfg.ComputeGEX = true
 	}
 
 	// Assemble each stock as it finishes and forward to the output channel.
@@ -377,6 +391,18 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	r.MacroContext = s.MacroContext
 	r.MaterialEvents = s.MaterialEvents
 	r.Peers = s.Peers
+	if s.MSPR > 0 {
+		r.MSPR = fmt.Sprintf("%.2f", s.MSPR)
+	} else {
+		r.MSPR = "N/A"
+	}
+	r.MSPRSignal = s.MSPRSignal
+	if r.MSPRSignal == "" {
+		r.MSPRSignal = "N/A"
+	}
+	if opt := s.Options; opt != nil && opt.GEX != nil {
+		r.GEX = opt.GEX
+	}
 
 	if s.Hi52 > 0 {
 		r.Hi52 = fmt.Sprintf("$%.2f", s.Hi52)

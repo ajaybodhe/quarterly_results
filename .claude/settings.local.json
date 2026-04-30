@@ -72,7 +72,8 @@
       "WebFetch(domain:data.nasdaq.com)",
       "WebFetch(domain:massive.com)",
       "WebFetch(domain:docs.tradier.com)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:api.unusualwhales.com)"
     ]
   }
 }

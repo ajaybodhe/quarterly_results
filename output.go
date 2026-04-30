@@ -25,6 +25,7 @@ func writeCsvHeader(cw *csv.Writer) {
 		"analyst_bullish", "analyst_neutral", "analyst_bearish", "analyst_total",
 		"options_expiry", "expected_move", "expected_move_pct", "iv_atm",
 		"pc_vol", "pc_oi", "skew", "max_pain", "max_pain_vs_current", "hist_avg_abs_rxn",
+		"mspr", "mspr_signal",
 		"macro_context",
 	})
 }
@@ -59,6 +60,7 @@ func writeCsvRow(cw *csv.Writer, r EarningsResult) {
 		fmt.Sprintf("%d", r.AnalystBearish), fmt.Sprintf("%d", r.AnalystTotal),
 		r.OptionsExpiry, r.ExpectedMove, r.ExpectedMovePct, r.IVAtm,
 		r.PCVol, r.PCoi, r.Skew, r.MaxPain, r.MaxPainVsCurrent, r.HistAvgAbsRxn,
+		r.MSPR, r.MSPRSignal,
 		r.MacroContext,
 	})
 }
@@ -214,8 +216,9 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 	// ── Institutional & Insider ──────────────────────────────────────────────
 	fmt.Fprintf(w, "Inst     Activity %-12s  Own %-8s  QoQ %-8s  Short %-8s  DaysCover %s\n",
 		r.InstActivity, r.InstOwn, r.InstTrans, r.ShortFloat, r.ShortRatio)
-	fmt.Fprintf(w, "Insider  Activity %-12s  Buy %-8s  Sell %-8s  Net %-8s  Filings %d\n",
-		r.InsiderActivity, r.InsiderBuyVal, r.InsiderSellVal, r.InsiderNetVal, r.InsiderFilings)
+	fmt.Fprintf(w, "Insider  Activity %-12s  Buy %-8s  Sell %-8s  Net %-8s  Filings %-4d  MSPR %-5s (%s)\n",
+		r.InsiderActivity, r.InsiderBuyVal, r.InsiderSellVal, r.InsiderNetVal, r.InsiderFilings,
+		r.MSPR, r.MSPRSignal)
 
 	// ── Derived signals ───────────────────────────────────────────────────────
 	fmt.Fprintf(w, "Range    52W-Hi %-8s  52W-Lo %-8s  Pct-from-Hi %-8s  Pct-from-Lo %-8s  RSI14 %s\n",
@@ -227,6 +230,21 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 	fmt.Fprintf(w, "Options  Exp %-10s  Move %-6s (%-6s)  IV %-6s  P/C_Vol %-5s  P/C_OI %-5s  Skew %-6s  MaxPain %-8s (%s)  HistAvg %s\n",
 		r.OptionsExpiry, r.ExpectedMove, r.ExpectedMovePct, r.IVAtm,
 		r.PCVol, r.PCoi, r.Skew, r.MaxPain, r.MaxPainVsCurrent, r.HistAvgAbsRxn)
+
+	// ── GEX Table (only present when --gex flag is set) ──────────────────────
+	if r.GEX != nil {
+		fmt.Fprintf(w, "\n  Dealer Gamma Exposure  Net GEX: %s  [%s]\n",
+			fmtGEX(r.GEX.NetGEX), r.GEX.Signal)
+		if len(r.GEX.ByStrike) > 0 {
+			gtw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(gtw, "    STRIKE\tCALL_GEX\tPUT_GEX\tNET_GEX")
+			for _, row := range r.GEX.ByStrike {
+				fmt.Fprintf(gtw, "    $%.2f\t%s\t%s\t%s\n",
+					row.Strike, fmtGEX(row.CallGEX), fmtGEX(row.PutGEX), fmtGEX(row.NetGEX))
+			}
+			gtw.Flush()
+		}
+	}
 
 	// ── Sector Peers (already reported same quarter) ─────────────────────────
 	if len(r.Peers) > 0 {
