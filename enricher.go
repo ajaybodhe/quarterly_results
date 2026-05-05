@@ -393,7 +393,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 		mspr, msprSignal, err = e.finnhubClient.FetchMSPR(res.Symbol)
 		if err != nil {
 			msprSignal = "N/A"
-			logf("Warning: MSPR unavailable for %s: %v", res.Symbol, err)
+			logf("Note: MSPR unavailable for %s: %v", res.Symbol, err)
 		}
 	}()
 

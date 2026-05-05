@@ -49,7 +49,7 @@ func (c *FinnhubClient) FetchMSPR(symbol string) (mspr float64, signal string, e
 	}
 
 	to := time.Now()
-	from := to.AddDate(0, -3, 0)
+	from := to.AddDate(-1, 0, 0) // 12 months: insiders at large-caps trade infrequently
 	url := fmt.Sprintf(
 		"https://finnhub.io/api/v1/stock/insider-sentiment?symbol=%s&from=%s&to=%s&token=%s",
 		symbol, from.Format("2006-01-02"), to.Format("2006-01-02"), c.apiKey,
