@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -109,6 +110,32 @@ type FinancialSummary struct {
 	MSPR       float64 // average over last 3 months; 0 = unavailable
 	MSPRSignal string  // "Bullish", "Neutral", "Bearish", or "N/A"
 
+	// ── Growth deceleration: the YoY growth rate of the *most recent reported*
+	// quarter, computed from History[]. Compare against RevenueYoYPct/EPSYoYPct
+	// (which are estimate vs same-quarter-last-year) to detect acceleration or
+	// deceleration heading into this report.
+	RevenueYoYPctPrev *float64
+	EPSYoYPctPrev     *float64
+
+	// ── Industry-relative valuation: median PE_TTM and PS across same-quarter
+	// peers in Peers[]. Anchor for "PE > industry average" checks.
+	IndustryMedianPE *float64
+	IndustryMedianPS *float64
+
+	// ── Sector momentum: the representative ETF's recent return.
+	// Used as a coarse "is the sector in favour right now?" gauge.
+	SectorETF    string   // e.g. "XLK", "SOXX", "XLF"
+	SectorRet1M  *float64 // ETF return over last 30 calendar days, %
+	SectorRet3M  *float64 // ETF return over last 90 calendar days, %
+
+	// Recommendation produced by ComputeRecommendation: a directional score
+	// aggregating signals 1–11 (see signals.go). Nil when scoring was skipped.
+	Recommendation *Recommendation
+
+	// Backtest is a walk-forward evaluation of the Tier-1 signals against
+	// this stock's last ≤4 reactions. Populated only when RunBacktest is on.
+	Backtest *BacktestSummary
+
 	// ISO currency code for this stock's exchange (e.g. "USD", "GBP", "EUR").
 	Currency string
 }
@@ -168,6 +195,7 @@ type EnrichConfig struct {
 	DisablePeers bool // skip sector-peer analysis
 	DisableNews  bool // skip material 8-K events analysis
 	ComputeGEX   bool // compute dealer gamma exposure (requires --gex + --symbol)
+	RunBacktest  bool // run walk-forward Tier-1 backtest of recommendation signals
 }
 
 // EnrichedSummary is the result produced by EnrichStream for one stock.
@@ -367,15 +395,45 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 	}()
 
 	isUS := e.exCfg.Exchange == ExchangeUS || e.exCfg.Exchange == ""
+
+	// SIC code is shared by peers and sector momentum. Fetch once, broadcast.
+	var (
+		sicCode    int
+		sicReady   = make(chan struct{})
+		sectorMom  *SectorMomentum
+	)
+	if isUS {
+		p1.Add(1)
+		go func() {
+			defer p1.Done()
+			sic, _, _ := e.providers.Financials.FetchEntitySIC(res.Symbol)
+			sicCode = sic
+			close(sicReady)
+		}()
+	} else {
+		close(sicReady)
+	}
+
 	if isUS && !e.cfg.DisablePeers {
 		if qEnd, ok := parseFiscalQuarterEnd(row.FiscalQuarterEnding); ok {
 			p1.Add(1)
 			go func() {
 				defer p1.Done()
-				targetSIC, _, _ := e.providers.Financials.FetchEntitySIC(res.Symbol)
-				peers = e.fetchPeers(res.Symbol, targetSIC, qEnd, res.MarketCapB)
+				<-sicReady
+				peers = e.fetchPeers(res.Symbol, sicCode, qEnd, res.MarketCapB)
 			}()
 		}
+	}
+
+	if isUS {
+		p1.Add(1)
+		go func() {
+			defer p1.Done()
+			<-sicReady
+			if sicCode > 0 {
+				sectorMom = FetchSectorMomentum(sicCode, e.httpClient)
+			}
+		}()
 	}
 
 	if isUS && !e.cfg.DisableNews {
@@ -493,6 +551,21 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 		s.EPSYoYPct = &yoy
 	}
 
+	// Prior-period YoY: growth rate of the most-recent reported quarter vs
+	// same fiscal quarter four periods earlier. Needs ≥5 quarters of history.
+	if len(s.History) >= 5 {
+		latest := s.History[len(s.History)-1]
+		yearAgo := s.History[len(s.History)-5]
+		if yearAgo.Revenue != 0 && latest.Revenue != 0 {
+			v := pctChange(yearAgo.Revenue, latest.Revenue)
+			s.RevenueYoYPctPrev = &v
+		}
+		if yearAgo.EPS != 0 && latest.EPS != 0 {
+			v := pctChange(yearAgo.EPS, latest.EPS)
+			s.EPSYoYPctPrev = &v
+		}
+	}
+
 	// YoY Revenue: estimate vs same fiscal quarter last year.
 	if s.RevenuePrevYear != nil && *s.RevenuePrevYear != 0 && s.RevenueEstimate != nil && *s.RevenueEstimate != 0 {
 		v := pctChange(*s.RevenuePrevYear, *s.RevenueEstimate)
@@ -537,9 +610,26 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 		fwdEPS = s.EPSEstimate * 4
 	}
 
-	// --- Peers ---
+	// --- Peers + industry-relative valuation medians ---
 	if len(peers) > 0 {
 		s.Peers = peers
+		if mPE, mPS := peerValuationMedians(peers); mPE > 0 || mPS > 0 {
+			if mPE > 0 {
+				v := mPE
+				s.IndustryMedianPE = &v
+			}
+			if mPS > 0 {
+				v := mPS
+				s.IndustryMedianPS = &v
+			}
+		}
+	}
+
+	// --- Sector momentum ---
+	if sectorMom != nil {
+		s.SectorETF = sectorMom.ETF
+		s.SectorRet1M = sectorMom.Ret1M
+		s.SectorRet3M = sectorMom.Ret3M
 	}
 
 	// --- MSPR ---
@@ -832,7 +922,44 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 		s.MaterialEvents = rawMatEvents
 	}
 
+	// ── Recommendation: aggregate every signal into a single directional score ──
+	s.Recommendation = ComputeRecommendation(s)
+
+	// ── Optional walk-forward backtest of the Tier-1 signals ────────────────
+	if e.cfg.RunBacktest && len(s.EarningsReactions) > 0 {
+		s.Backtest = RunBacktest(s, prices, sicCode, e.httpClient)
+	}
+
 	return s
+}
+
+// peerValuationMedians returns the median PE_TTM and PS across peers that
+// reported usable values. Returns 0 for either if no peer had a positive value.
+func peerValuationMedians(peers []PeerResult) (medianPE, medianPS float64) {
+	var pes, pss []float64
+	for _, p := range peers {
+		if p.PE_TTM > 0 {
+			pes = append(pes, p.PE_TTM)
+		}
+		if p.PS > 0 {
+			pss = append(pss, p.PS)
+		}
+	}
+	return medianFloat(pes), medianFloat(pss)
+}
+
+func medianFloat(xs []float64) float64 {
+	if len(xs) == 0 {
+		return 0
+	}
+	cp := make([]float64, len(xs))
+	copy(cp, xs)
+	sort.Float64s(cp)
+	mid := len(cp) / 2
+	if len(cp)%2 == 0 {
+		return (cp[mid-1] + cp[mid]) / 2
+	}
+	return cp[mid]
 }
 
 // dailyVolatility returns the standard deviation of daily percentage returns

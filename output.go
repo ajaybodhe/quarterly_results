@@ -125,6 +125,11 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 	fmt.Fprintln(w, header)
 	fmt.Fprintln(w, divider)
 
+	// ── Recommendation ──────────────────────────────────────────────────────
+	if r.Recommendation != nil {
+		writeRecommendation(w, r.Recommendation)
+	}
+
 	// ── EPS & Revenue ───────────────────────────────────────────────────────
 	epsEst := "N/A"
 	if r.EPSEstimate != 0 {
@@ -381,6 +386,29 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 			)
 		}
 		rtw.Flush()
+	}
+
+	// ── Walk-forward backtest of Tier-1 signals ──────────────────────────────
+	if r.Backtest != nil && r.Backtest.Total > 0 {
+		fmt.Fprintln(w, "\n  Tier-1 Backtest (walk-forward, no lookahead):")
+		fmt.Fprint(w, "    "+FormatBacktestSummary(r.Backtest))
+	}
+}
+
+// writeRecommendation prints a compact 2-line directional rating with up to
+// three top-contributing reason strings.
+func writeRecommendation(w io.Writer, rec *Recommendation) {
+	mark := "•"
+	switch rec.Label {
+	case "Positive":
+		mark = "▲"
+	case "Negative":
+		mark = "▼"
+	}
+	fmt.Fprintf(w, "Rating   %s %-9s  Score %+6.1f  Confidence %.0f%%\n",
+		mark, rec.Label, rec.Score, rec.Confidence*100)
+	for _, reason := range rec.TopReasons {
+		fmt.Fprintf(w, "         %s\n", reason)
 	}
 }
 

@@ -33,6 +33,12 @@ type PeerResult struct {
 	ReactionClose    float64 `json:"reaction_close"`    // close on reaction day
 	GapRetPct        float64 `json:"gap_ret_pct"`       // (open − prior) / prior × 100
 	DayRetPct        float64 `json:"day_ret_pct"`       // (close − prior) / prior × 100
+
+	// Valuation ratios at the time of the peer's report — used to compute the
+	// industry median PE/PS for the target stock's score (signal `pe_vs_industry`).
+	// Both 0 if not computable from available data.
+	PE_TTM float64 `json:"pe_ttm,omitempty"`
+	PS     float64 `json:"ps,omitempty"`
 }
 
 // sicSectorGroup maps a 4-digit SIC code to a coarse sector so that, for
@@ -335,6 +341,33 @@ func (e *Enricher) fetchPeers(
 			if epsEst != 0 {
 				v := pctChange(epsEst, bestQ.EPS)
 				pr.EPSBeatPct = &v
+			}
+
+			// Valuation ratios — computed from the peer's own data so that
+			// the target stock's industry-median PE/PS can be derived from
+			// genuine peer comparables. PE_TTM uses current price ÷ TTM EPS;
+			// PS uses current market cap ÷ TTM revenue.
+			if len(history) >= 4 {
+				idx := -1
+				for i := range history {
+					if history[i].Period == bestQ.Period {
+						idx = i
+						break
+					}
+				}
+				if idx >= 3 {
+					var ttmEPS, ttmRev float64
+					for j := idx - 3; j <= idx; j++ {
+						ttmEPS += history[j].EPS
+						ttmRev += history[j].Revenue
+					}
+					if currentPx := prices[len(prices)-1].Close; currentPx > 0 && ttmEPS > 0 {
+						pr.PE_TTM = currentPx / ttmEPS
+					}
+					if c.capB > 0 && ttmRev > 0 {
+						pr.PS = (c.capB * 1e9) / ttmRev
+					}
+				}
 			}
 
 			mu.Lock()

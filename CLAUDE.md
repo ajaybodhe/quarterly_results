@@ -28,12 +28,16 @@ go run . --from 2026-05-04 --to 2026-05-09 --exchange LSE
 go run . --from 2026-03-10 --to 2026-03-14 --timing bmo
 go run . --from 2026-03-10 --to 2026-03-14 --timing amc
 
+# Walk-forward backtest of the recommendation signals on prior reactions
+go run . --symbol AAPL --backtest
+
 # Test all
 go test ./...
 
 # Test a single function
 go test -run TestComputeMaxPain
 go test -run TestExchangeForTicker
+go test -run TestComputeRecommendation
 ```
 
 ## Architecture
@@ -66,7 +70,11 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 | `stockanalysis.go` | Revenue/EPS consensus + analyst ratings (scraped) |
 | `options.go` | Yahoo Finance options: crumb auth, IV, Expected Move, P/C ratio, Skew, Max Pain |
 | `finviz.go` | Institutional ownership scraper (US only — guarded) |
-| `peers.go` | Sector peers via SEC SIC codes (US only — guarded) |
+| `peers.go` | Sector peers via SEC SIC codes (US only — guarded); also computes peer PE_TTM / PS for industry medians |
+| `sector_momentum.go` | SIC → sector ETF map (XLK, SOXX, XLF, XLV, etc.); fetches 1M / 3M ETF returns via Yahoo with per-process cache |
+| `signals.go` | 11 directional signals (`signalValuationVsGrowth`, `signalGrowthTrajectory`, `signalPEvsIndustry`, `signalPosition`, `signalInsider`, `signalInstitutional`, `signalOptionsSentiment`, `signalBeatHistory`, `signalReactionTendency`, `signalPeerReactions`, `signalSectorMomentum`); each returns `(score, confidence, reason)` |
+| `score.go` | `Recommendation` type, `ComputeRecommendation` aggregator (weight × score × confidence), label thresholds, top-reasons ranking |
+| `backtest.go` | Walk-forward Tier-1 backtest using `BacktestSignals` subset; `RunBacktest` / `BacktestSummary` / `FormatBacktestSummary` |
 | `workday.go` | `HolidayCalendar` interface + NYSE/LSE/XETRA/Euronext implementations, `NewHolidayCalendar` factory |
 | `macro.go` | FOMC/CPI/NFP (US), ECB Rate (FSE/Euronext), BoE Rate (LSE); `LoadMacroCalendar(from, to, cfg)` |
 | `format.go` | Math/string helpers: `pctChange`, `fmtCurrency`, `fmtCurrencyB`, `computeResultDate`, etc. |
@@ -95,3 +103,11 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 **MSPR sparsity:** `finnhub.go` queries a 12-month window for insider sentiment because large-cap insiders trade infrequently — a 3-month window returned no data for many tickers. MSPR-unavailable is logged as "Note" rather than "Warning" since it's expected.
 
 **Currency:** `FinancialSummary` and `EarningsResult` carry a `Currency` field (USD/GBP/EUR). `fmtCurrency` and `fmtCurrencyB` apply the right symbol (£/€/$). Insider transaction values stay in USD (Form 4 reports in USD; Finnhub returns local currency for international, displayed as-is).
+
+**Recommendation pipeline:** After all per-stock data is collected, `buildSummary` calls `ComputeRecommendation(s)` which runs every entry in `DefaultSignals` and aggregates them as `Σ weight × score × confidence / Σ weight × 100`. Confidence acts as a multiplier inside the sum: a low-confidence signal pulls the score toward zero rather than swinging it. Label thresholds (`labelThresholdScore=15`, `labelThresholdConfidence=0.4`) are intentionally conservative — when in doubt, output is "Neutral". The `TopReasons` field surfaces the three highest-impact `|weight × score × confidence|` reason strings for human-readable output.
+
+**SIC fetch fan-out:** Both `peers.go` and `sector_momentum.go` need the SIC code. `buildSummary` fetches it once into `sicCode` behind a `sicReady` channel; the peers and sector-momentum goroutines both `<-sicReady` before proceeding. This avoids two SEC ticker-map lookups per stock.
+
+**Industry medians:** After the peers list is populated, `peerValuationMedians()` derives median PE_TTM and PS across peers that reported usable values. These feed `signalPEvsIndustry`. Peers compute their own PE/PS in `peers.go` from each peer's TTM EPS / TTM Revenue at the matching quarter, divided by current price / market cap.
+
+**Backtest scope (Tier-1 only):** `RunBacktest` evaluates only `BacktestSignals` (`position`, `reaction_tendency`, `peer_reactions`, `sector_momentum`) — the strict subset reconstructable at a historical point in time without lookahead. The eight signals that depend on *current* fundamentals (PE/PS at date X, MSPR at date X, options snapshot, current consensus estimates) are excluded because we don't have the historical snapshots. Walk-forward: for each prior reaction, prices are truncated to bars `< announcement_date`, prior reactions are restricted to the strict prefix, and `SectorMomentumAt` recomputes the ETF return ending at that date. The harness compares predicted label to actual signed return (±1% deadband), reports hit rate vs the always-guess-most-common-label baseline.

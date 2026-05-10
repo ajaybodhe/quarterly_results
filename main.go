@@ -128,6 +128,14 @@ type EarningsResult struct {
 
 	// Sector peers that already reported the same fiscal quarter
 	Peers []PeerResult `json:"peers,omitempty"`
+
+	// Aggregated directional recommendation (Positive/Negative/Neutral) with
+	// score, confidence, and the per-signal breakdown. See score.go.
+	Recommendation *Recommendation `json:"recommendation,omitempty"`
+
+	// Walk-forward backtest of the Tier-1 signals on this stock's last
+	// ≤4 reactions. Populated only when --backtest is set.
+	Backtest *BacktestSummary `json:"backtest,omitempty"`
 }
 
 func main() {
@@ -142,6 +150,7 @@ func main() {
 	gexFlag := flag.Bool("gex", false, "Compute dealer gamma exposure table (requires --symbol)")
 	exchangeFlag := flag.String("exchange", "US", "Exchange: US | LSE | FSE | EURONEXT")
 	timingFlag := flag.String("timing", "", "Filter by earnings timing: bmo (before market open) | amc (after market close) | \"\" (all)")
+	backtestFlag := flag.Bool("backtest", false, "Run walk-forward Tier-1 backtest on each stock's prior reactions")
 	flag.Parse()
 
 	exCfg, err := ExchangeConfigByName(*exchangeFlag)
@@ -285,6 +294,9 @@ func main() {
 			log.Fatal("--gex requires --symbol to be set")
 		}
 		enricher.cfg.ComputeGEX = true
+	}
+	if *backtestFlag {
+		enricher.cfg.RunBacktest = true
 	}
 
 	// Assemble each stock as it finishes and forward to the output channel.
@@ -453,6 +465,8 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	if opt := s.Options; opt != nil && opt.GEX != nil {
 		r.GEX = opt.GEX
 	}
+	r.Recommendation = s.Recommendation
+	r.Backtest = s.Backtest
 
 	if s.Hi52 > 0 {
 		r.Hi52 = fmtCurrency(s.Hi52, cur)
