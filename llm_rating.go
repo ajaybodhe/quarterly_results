@@ -40,6 +40,8 @@ type LLMSubRatings struct {
 	Fundamentals *LLMSubAnalysis `json:"fundamentals,omitempty"`
 	Transcript   *LLMSubAnalysis `json:"transcript,omitempty"`
 	News         *LLMSubAnalysis `json:"news,omitempty"`
+	Macro        *LLMSubAnalysis `json:"macro,omitempty"`
+	Dynamic      *LLMSubAnalysis `json:"dynamic,omitempty"`
 }
 
 type LLMMetadata struct {

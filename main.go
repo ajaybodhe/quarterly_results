@@ -96,6 +96,11 @@ type EarningsResult struct {
 	// ── Macro context (scheduled events ±2 days of earnings date) ────────────
 	MacroContext string `json:"macro_context,omitempty"`
 
+	// ── Sector momentum (representative ETF over recent windows) ────────────
+	SectorETF   string   `json:"sector_etf,omitempty"`
+	SectorRet1M *float64 `json:"sector_ret_1m,omitempty"`
+	SectorRet3M *float64 `json:"sector_ret_3m,omitempty"`
+
 	// ── Options setup (pre-earnings) ─────────────────────────────────────────
 	OptionsExpiry    string `json:"options_expiry,omitempty"`
 	ExpectedMove     string `json:"expected_move,omitempty"`
@@ -458,7 +463,27 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	r.AnalystBearish = s.Sell + s.StrongSell
 	r.AnalystTotal = s.TotalRatings
 	r.EarningsReactions = s.EarningsReactions
+	// When the calendar lookup found no upcoming earnings (common right after a
+	// company has just reported), fall back to the most recent past announcement
+	// so downstream consumers always have a reference earnings date to anchor on.
+	if r.EarningsDate == "" && len(s.EarningsReactions) > 0 {
+		latest := s.EarningsReactions[0]
+		for _, rxn := range s.EarningsReactions[1:] {
+			if rxn.AnnouncementDate > latest.AnnouncementDate {
+				latest = rxn
+			}
+		}
+		if latest.AnnouncementDate != "" {
+			r.EarningsDate = latest.AnnouncementDate
+			if r.ResultDate == "" {
+				r.ResultDate = latest.AnnouncementDate
+			}
+		}
+	}
 	r.MacroContext = s.MacroContext
+	r.SectorETF = s.SectorETF
+	r.SectorRet1M = s.SectorRet1M
+	r.SectorRet3M = s.SectorRet3M
 	r.MaterialEvents = s.MaterialEvents
 	r.Peers = s.Peers
 	if s.MSPR > 0 {
