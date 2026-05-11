@@ -31,6 +31,9 @@ go run . --from 2026-03-10 --to 2026-03-14 --timing amc
 # Walk-forward backtest of the recommendation signals on prior reactions
 go run . --symbol AAPL --backtest
 
+# Attach an LLM rating from the sibling llm-earnings-agent Python project
+go run . --symbol AAPL --llm-rating
+
 # Test all
 go test ./...
 
@@ -75,6 +78,7 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 | `signals.go` | 11 directional signals (`signalValuationVsGrowth`, `signalGrowthTrajectory`, `signalPEvsIndustry`, `signalPosition`, `signalInsider`, `signalInstitutional`, `signalOptionsSentiment`, `signalBeatHistory`, `signalReactionTendency`, `signalPeerReactions`, `signalSectorMomentum`); each returns `(score, confidence, reason)` |
 | `score.go` | `Recommendation` type, `ComputeRecommendation` aggregator (weight × score × confidence), label thresholds, top-reasons ranking |
 | `backtest.go` | Walk-forward Tier-1 backtest using `BacktestSignals` subset; `RunBacktest` / `BacktestSummary` / `FormatBacktestSummary` |
+| `llm_rating.go` | `LLMRating` struct + `FetchLLMRating` subprocess wrapper around the sibling `llm-earnings-agent` Python CLI; rendered by `writeLLMRating`. Result is parallel to `Recommendation` — it is **not** mixed into `ComputeRecommendation` |
 | `workday.go` | `HolidayCalendar` interface + NYSE/LSE/XETRA/Euronext implementations, `NewHolidayCalendar` factory |
 | `macro.go` | FOMC/CPI/NFP (US), ECB Rate (FSE/Euronext), BoE Rate (LSE); `LoadMacroCalendar(from, to, cfg)` |
 | `format.go` | Math/string helpers: `pctChange`, `fmtCurrency`, `fmtCurrencyB`, `computeResultDate`, etc. |
@@ -107,6 +111,8 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 **Recommendation pipeline:** After all per-stock data is collected, `buildSummary` calls `ComputeRecommendation(s)` which runs every entry in `DefaultSignals` and aggregates them as `Σ weight × score × confidence / Σ weight × 100`. Confidence acts as a multiplier inside the sum: a low-confidence signal pulls the score toward zero rather than swinging it. Label thresholds (`labelThresholdScore=15`, `labelThresholdConfidence=0.4`) are intentionally conservative — when in doubt, output is "Neutral". The `TopReasons` field surfaces the three highest-impact `|weight × score × confidence|` reason strings for human-readable output.
 
 **SIC fetch fan-out:** Both `peers.go` and `sector_momentum.go` need the SIC code. `buildSummary` fetches it once into `sicCode` behind a `sicReady` channel; the peers and sector-momentum goroutines both `<-sicReady` before proceeding. This avoids two SEC ticker-map lookups per stock.
+
+**LLM rating (`--llm-rating`):** When set, `buildSummary` runs `FetchLLMRating(ctx, symbol)` as a Phase 1 goroutine alongside the others. It shells out to the sibling `llm-earnings-agent analyze --symbol X --output json` binary (override path with `LLM_AGENT_BIN`) with a 5-minute timeout. Errors are logged and swallowed so a failing LLM call never blocks the rest of the pipeline. The result is rendered by `writeLLMRating` directly below `writeRecommendation` in the stock card and is **not** fed back into `ComputeRecommendation` — the LLM rating and the deterministic Rating stay independent until track record warrants mixing.
 
 **Industry medians:** After the peers list is populated, `peerValuationMedians()` derives median PE_TTM and PS across peers that reported usable values. These feed `signalPEvsIndustry`. Peers compute their own PE/PS in `peers.go` from each peer's TTM EPS / TTM Revenue at the matching quarter, divided by current price / market cap.
 

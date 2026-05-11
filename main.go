@@ -136,6 +136,10 @@ type EarningsResult struct {
 	// Walk-forward backtest of the Tier-1 signals on this stock's last
 	// ≤4 reactions. Populated only when --backtest is set.
 	Backtest *BacktestSummary `json:"backtest,omitempty"`
+
+	// LLM rating from the sibling llm-earnings-agent Python project.
+	// Populated only when --llm-rating is set.
+	LLMRating *LLMRating `json:"llm_rating,omitempty"`
 }
 
 func main() {
@@ -151,6 +155,7 @@ func main() {
 	exchangeFlag := flag.String("exchange", "US", "Exchange: US | LSE | FSE | EURONEXT")
 	timingFlag := flag.String("timing", "", "Filter by earnings timing: bmo (before market open) | amc (after market close) | \"\" (all)")
 	backtestFlag := flag.Bool("backtest", false, "Run walk-forward Tier-1 backtest on each stock's prior reactions")
+	llmRatingFlag := flag.Bool("llm-rating", false, "Attach an LLM rating from the sibling llm-earnings-agent project")
 	flag.Parse()
 
 	exCfg, err := ExchangeConfigByName(*exchangeFlag)
@@ -297,6 +302,9 @@ func main() {
 	}
 	if *backtestFlag {
 		enricher.cfg.RunBacktest = true
+	}
+	if *llmRatingFlag {
+		enricher.cfg.LLMRating = true
 	}
 
 	// Assemble each stock as it finishes and forward to the output channel.
@@ -467,6 +475,7 @@ func assembleResult(r EarningsResult, s *FinancialSummary) EarningsResult {
 	}
 	r.Recommendation = s.Recommendation
 	r.Backtest = s.Backtest
+	r.LLMRating = s.LLMRating
 
 	if s.Hi52 > 0 {
 		r.Hi52 = fmtCurrency(s.Hi52, cur)

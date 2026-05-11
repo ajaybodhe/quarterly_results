@@ -129,6 +129,9 @@ func writeStockCard(w io.Writer, r EarningsResult) {
 	if r.Recommendation != nil {
 		writeRecommendation(w, r.Recommendation)
 	}
+	if r.LLMRating != nil {
+		writeLLMRating(w, r.LLMRating)
+	}
 
 	// ── EPS & Revenue ───────────────────────────────────────────────────────
 	epsEst := "N/A"

@@ -73,7 +73,30 @@
       "WebFetch(domain:massive.com)",
       "WebFetch(domain:docs.tradier.com)",
       "WebSearch",
-      "WebFetch(domain:api.unusualwhales.com)"
+      "WebFetch(domain:api.unusualwhales.com)",
+      "Read(//Users/rutujabodhe/Downloads/go_projects/**)",
+      "Bash(claude --version)",
+      "Read(//usr/local/bin/**)",
+      "Bash(brew list *)",
+      "Bash(grep -E \"^python|^uv$\")",
+      "Bash(pyenv versions *)",
+      "Bash(pyenv install *)",
+      "Bash(grep -E \"^\\\\s+3\\\\.12\\\\.[0-9]+$\")",
+      "Bash(grep -E \"^[[:space:]]+3\\\\.1[12]\\\\.[0-9]+$\")",
+      "Bash(awk '/^[[:space:]]+3\\\\.\\(11|12|13\\)\\\\./ {print}')",
+      "Bash(brew upgrade *)",
+      "Bash(ps -p 32523 -o etime,pcpu,rss)",
+      "Bash(xargs -I{} ps -p {} -o pid,etime,command)",
+      "Bash(pyenv --version)",
+      "Bash(awk '/^  3\\\\.\\(11|12|13\\)\\\\./')",
+      "Bash(sh)",
+      "Bash(export PATH=\"$HOME/.local/bin:$PATH\")",
+      "Bash(uv --version)",
+      "Bash(uv python *)",
+      "Bash(uv venv *)",
+      "Bash(uv pip *)",
+      "Bash(.venv/bin/pytest)",
+      "Bash(.venv/bin/llm-earnings-agent --help)"
     ]
   }
 }

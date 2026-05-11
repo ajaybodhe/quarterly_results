@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"net/http/cookiejar"
@@ -136,6 +137,10 @@ type FinancialSummary struct {
 	// this stock's last ≤4 reactions. Populated only when RunBacktest is on.
 	Backtest *BacktestSummary
 
+	// LLMRating is produced by the sibling `llm-earnings-agent` Python project.
+	// Populated only when --llm-rating is set and the subprocess succeeds.
+	LLMRating *LLMRating
+
 	// ISO currency code for this stock's exchange (e.g. "USD", "GBP", "EUR").
 	Currency string
 }
@@ -196,6 +201,7 @@ type EnrichConfig struct {
 	DisableNews  bool // skip material 8-K events analysis
 	ComputeGEX   bool // compute dealer gamma exposure (requires --gex + --symbol)
 	RunBacktest  bool // run walk-forward Tier-1 backtest of recommendation signals
+	LLMRating    bool // call sibling llm-earnings-agent to attach an LLM rating
 }
 
 // EnrichedSummary is the result produced by EnrichStream for one stock.
@@ -315,6 +321,7 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 		rawMatEvents  []MaterialEvent
 		mspr          float64
 		msprSignal    string
+		llmRating     *LLMRating
 	)
 
 	since := time.Now().AddDate(0, -3, 0)
@@ -454,6 +461,19 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 			logf("Note: MSPR unavailable for %s: %v", res.Symbol, err)
 		}
 	}()
+
+	if e.cfg.LLMRating {
+		p1.Add(1)
+		go func() {
+			defer p1.Done()
+			r, err := FetchLLMRating(context.Background(), res.Symbol)
+			if err != nil {
+				logf("Warning: LLM rating unavailable for %s: %v", res.Symbol, err)
+				return
+			}
+			llmRating = r
+		}()
+	}
 
 	p1.Wait()
 
@@ -638,6 +658,9 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 	if s.MSPRSignal == "" {
 		s.MSPRSignal = "N/A"
 	}
+
+	// --- LLM rating (sibling Python agent) ---
+	s.LLMRating = llmRating
 
 	// No price history → return what we have so far.
 	if pricesErr != nil || len(prices) == 0 {
