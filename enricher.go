@@ -226,6 +226,10 @@ type Enricher struct {
 	cfg       EnrichConfig
 	exCfg     ExchangeConfig
 	providers ExchangeProviders
+
+	// peerOverrides is the file-backed cache of curated/discovered peer lists,
+	// consulted by fetchPeers before falling through to the SIC sector default.
+	peerOverrides *peerOverrideStore
 }
 
 func NewEnricher() *Enricher {
@@ -246,8 +250,9 @@ func NewEnricherForExchange(cfg ExchangeConfig) *Enricher {
 			DisablePeers: os.Getenv("DISABLE_PEERS") == "1",
 			DisableNews:  os.Getenv("DISABLE_NEWS") == "1",
 		},
-		exCfg:     cfg,
-		providers: NewProvidersForExchange(cfg, secClient, finnhubClient, httpClient),
+		exCfg:         cfg,
+		providers:     NewProvidersForExchange(cfg, secClient, finnhubClient, httpClient),
+		peerOverrides: loadPeerOverrideStore(peerOverridesPath()),
 	}
 	return e
 }

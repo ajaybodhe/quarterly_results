@@ -1,0 +1,42 @@
+{
+  "DT": {
+    "peers": [
+      "DDOG",
+      "ESTC",
+      "NOW"
+    ],
+    "source": "manual",
+    "updated": "2026-05-12"
+  },
+  "NBIS": {
+    "peers": [
+      "CRWV",
+      "NET",
+      "AKAM"
+    ],
+    "source": "manual",
+    "updated": "2026-05-12"
+  },
+  "TAK": {
+    "peers": [
+      "VIR",
+      "RHHBY",
+      "SNY",
+      "ARCT",
+      "TWST"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-12"
+  },
+  "TSEM": {
+    "peers": [
+      "NVMI",
+      "CAMT",
+      "MTSI",
+      "AXTI",
+      "ESLT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-12"
+  }
+}

@@ -31,7 +31,7 @@ go run . --from 2026-03-10 --to 2026-03-14 --timing amc
 # Walk-forward backtest of the recommendation signals on prior reactions
 go run . --symbol AAPL --backtest
 
-# Attach an LLM rating from the sibling llm-earnings-agent Python project
+# LLM rating from the sibling llm-earnings-agent Python project (off by default)
 go run . --symbol AAPL --llm-rating
 
 # Test all
@@ -73,7 +73,8 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 | `stockanalysis.go` | Revenue/EPS consensus + analyst ratings (scraped) |
 | `options.go` | Yahoo Finance options: crumb auth, IV, Expected Move, P/C ratio, Skew, Max Pain |
 | `finviz.go` | Institutional ownership scraper (US only — guarded) |
-| `peers.go` | Sector peers via SEC SIC codes (US only — guarded); also computes peer PE_TTM / PS for industry medians |
+| `peers.go` | Sector peers via SEC SIC codes (US only — guarded); also computes peer PE_TTM / PS for industry medians. Consults `peer_overrides.go` first |
+| `peer_overrides.go` | File-backed peer cache (`peer_overrides.json`) with three resolution layers: manual entries → Yahoo `recommendationsbysymbol` → LLM via `claude -p`. Yahoo and LLM results are cached back to disk so each ticker is resolved once |
 | `sector_momentum.go` | SIC → sector ETF map (XLK, SOXX, XLF, XLV, etc.); fetches 1M / 3M ETF returns via Yahoo with per-process cache |
 | `signals.go` | 11 directional signals (`signalValuationVsGrowth`, `signalGrowthTrajectory`, `signalPEvsIndustry`, `signalPosition`, `signalInsider`, `signalInstitutional`, `signalOptionsSentiment`, `signalBeatHistory`, `signalReactionTendency`, `signalPeerReactions`, `signalSectorMomentum`); each returns `(score, confidence, reason)` |
 | `score.go` | `Recommendation` type, `ComputeRecommendation` aggregator (weight × score × confidence), label thresholds, top-reasons ranking |
@@ -112,7 +113,9 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 
 **SIC fetch fan-out:** Both `peers.go` and `sector_momentum.go` need the SIC code. `buildSummary` fetches it once into `sicCode` behind a `sicReady` channel; the peers and sector-momentum goroutines both `<-sicReady` before proceeding. This avoids two SEC ticker-map lookups per stock.
 
-**LLM rating (`--llm-rating`):** When set, `buildSummary` runs `FetchLLMRating(ctx, symbol)` as a Phase 1 goroutine alongside the others. It shells out to the sibling `llm-earnings-agent analyze --symbol X --output json` binary (override path with `LLM_AGENT_BIN`) with a 5-minute timeout. Errors are logged and swallowed so a failing LLM call never blocks the rest of the pipeline. The result is rendered by `writeLLMRating` directly below `writeRecommendation` in the stock card and is **not** fed back into `ComputeRecommendation` — the LLM rating and the deterministic Rating stay independent until track record warrants mixing.
+**Peer resolution order:** `fetchPeers` in `peers.go` consults `peer_overrides.go` before falling back to SIC matching. The override store (`peer_overrides.json` at repo root, override path with `PEER_OVERRIDES_FILE`) holds three kinds of entries: `"manual"` (curated, e.g. NBIS→[CRWV,NET,AKAM]), `"yahoo"` (auto-populated from Yahoo's `recommendationsbysymbol` v6 endpoint), and `"llm"` (auto-populated from `claude -p` asking for product/market competitors). When an override is present, the cap-band filter and SIC sector check are both skipped — the curated list is treated as authoritative and only restricted by "must have reported in the ±75-day calendar window." Yahoo and LLM responses are written back to disk on first resolution so subsequent runs hit the cache. Delete an entry from `peer_overrides.json` to force re-resolution.
+
+**LLM rating (opt-in via `--llm-rating`):** when the flag is set, `buildSummary` runs `FetchLLMRating(ctx, symbol)` as a Phase 1 goroutine alongside the others. It shells out to the sibling `llm-earnings-agent analyze --symbol X --output json` binary (override path with `LLM_AGENT_BIN`) with a 5-minute timeout. Errors are logged and swallowed so a failing LLM call never blocks the rest of the pipeline. The result is rendered by `writeLLMRating` directly below `writeRecommendation` in the stock card and is **not** fed back into `ComputeRecommendation` — the LLM rating and the deterministic Rating stay independent until track record warrants mixing.
 
 **Industry medians:** After the peers list is populated, `peerValuationMedians()` derives median PE_TTM and PS across peers that reported usable values. These feed `signalPEvsIndustry`. Peers compute their own PE/PS in `peers.go` from each peer's TTM EPS / TTM Revenue at the matching quarter, divided by current price / market cap.
 

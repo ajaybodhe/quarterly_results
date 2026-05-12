@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -176,6 +178,23 @@ func (e *Enricher) fetchPeers(
 	minPeerCapB := math.Max(absMinPeerCapB, targetCapB*peerCapMinRatio)
 	maxPeerCapB := targetCapB * peerCapMaxRatio
 
+	// ── Override path: curated / Yahoo-cached / LLM-cached peer list takes
+	// precedence over SIC sector matching. SIC groups are too coarse for many
+	// modern tickers (e.g. NBIS lands with MU/AMD/INTC instead of CRWV/NET).
+	var overridePeers []string
+	if e.peerOverrides != nil {
+		var src string
+		overridePeers, src = resolvePeerOverrides(context.Background(), e.peerOverrides, targetSymbol, e.yahooClient)
+		if len(overridePeers) > 0 {
+			logf("Using %d %s peers for %s: %s", len(overridePeers), src, targetSymbol, strings.Join(overridePeers, ", "))
+		}
+	}
+	overrideMode := len(overridePeers) > 0
+	overrideSet := map[string]bool{}
+	for _, p := range overridePeers {
+		overrideSet[strings.ToUpper(p)] = true
+	}
+
 	nc := &NasdaqClient{httpClient: e.httpClient}
 	from := targetPeriodEnd.AddDate(0, 0, -calWindowDays)
 	to := time.Now() // only past reporters
@@ -188,6 +207,8 @@ func (e *Enricher) fetchPeers(
 	events, calMap, _ := nc.FetchEarningsCalendar(from, to)
 
 	// Filter: past only, within relative cap band, not the target symbol.
+	// In override mode, skip the cap-band filter and take only the override
+	// tickers (cap is implicit in the human-curated list).
 	today := time.Now().Format("2006-01-02")
 	type candidate struct {
 		sym   string
@@ -206,8 +227,14 @@ func (e *Enricher) fetchPeers(
 			continue // hasn't reported yet
 		}
 		capB := ev.MarketCap / 1e9
-		if capB < minPeerCapB || capB > maxPeerCapB {
-			continue
+		if overrideMode {
+			if !overrideSet[strings.ToUpper(ev.Symbol)] {
+				continue
+			}
+		} else {
+			if capB < minPeerCapB || capB > maxPeerCapB {
+				continue
+			}
 		}
 		seen[ev.Symbol] = true
 		candidates = append(candidates, candidate{
@@ -220,11 +247,12 @@ func (e *Enricher) fetchPeers(
 		_ = calMap // calendar row data available if needed later
 	}
 
-	// Sort by market cap descending and cap at maxCandidates.
+	// Sort by market cap descending and cap at maxCandidates (override mode
+	// skips this cap because the user-curated list is already short).
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].capB > candidates[j].capB
 	})
-	if len(candidates) > maxCandidates {
+	if !overrideMode && len(candidates) > maxCandidates {
 		candidates = candidates[:maxCandidates]
 	}
 
@@ -243,8 +271,9 @@ func (e *Enricher) fetchPeers(
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			// ── 1. SIC check ─────────────────────────────────────────────────
-			if targetSIC != 0 {
+			// ── 1. SIC check (skipped in override mode — the override list
+			//    is human/Yahoo/LLM-curated and authoritative).
+			if !overrideMode && targetSIC != 0 {
 				peerSIC, _, err := e.secClient.FetchEntitySIC(c.sym)
 				if err != nil || sicSectorGroup(peerSIC) != targetSectorGroup {
 					return // different sector — skip
