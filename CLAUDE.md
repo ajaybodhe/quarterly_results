@@ -67,6 +67,7 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 | `us_calendar.go` | Nasdaq earnings calendar, US prices, forward EPS forecasts (formerly `nasdaq.go`) |
 | `intl_calendar.go` | Finnhub earnings calendar for LSE/FSE/Euronext |
 | `yahoo_price.go` | Yahoo Finance v8 chart API for international price history |
+| `yahoo_financials.go` | Yahoo `quoteSummary` fallback for quarterly EPS + revenue + announcement date when SEC XBRL returns nothing (e.g. US-listed Foreign Private Issuers like NBIS that file 6-K instead of 10-Q) |
 | `finnhub.go` | Finnhub MSPR (insider sentiment) — 12-month window |
 | `finnhub_financials.go` | Finnhub-based `FinancialsProvider` for international stocks |
 | `sec.go` | `SECClient`: XBRL quarterly actuals, 8-K announcement dates, Form 4 insiders, SIC peers (US only) |
@@ -94,6 +95,8 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 **International data gaps:** Institutional ownership (Finviz), sector peers (SEC SIC), and material 8-K events are US-only. The enricher's US-only guard (`isUS := e.exCfg.Exchange == ExchangeUS || e.exCfg.Exchange == ""`) skips these provider calls for non-US exchanges; output renders "N/A" for the corresponding sections.
 
 **SEC XBRL comparative data:** When a company files a 10-Q, the XBRL data includes comparative prior-year figures tagged with the current filing date. `fetchConcept` in `sec.go` applies a 150-day cap (`filed - periodEnd <= 150 days`) to reject these comparative re-filings. Within the window, the most recently filed date wins (handles amendments).
+
+**Foreign Private Issuers (FPI) on US exchanges:** Tickers like NBIS (Nebius), TSEM (Tower Semi), TAK (Takeda) file 6-K interim reports and 20-F annuals instead of 10-Q/10-K, so the SEC XBRL companyconcept API returns no quarterly facts and the History/EarningsReactions blocks would otherwise be empty. The `buildSummary` history goroutine detects this (primary provider returns <2 quarters for a US-exchange ticker) and falls through to `fetchYahooQuarterlyActuals` in `yahoo_financials.go`, which queries Yahoo's `quoteSummary` for `earnings.earningsChart.quarterly` (periodEnd + reportedDate + EPS) merged with `incomeStatementHistoryQuarterly.incomeStatementHistory` (revenue). Yahoo's `reportedDate` doubles as the announcement date, so `EarningsReactions` rebuild correctly without needing the SEC 8-K lookup.
 
 **Yahoo Finance auth:** Yahoo requires a crumb token tied to a cookie session. `ensureYahooCrumb()` in `options.go` hits `fc.yahoo.com` (returns 404 but sets the `A3` cookie), then fetches `query2.finance.yahoo.com/v1/test/getcrumb`. All Yahoo API calls use `yahooClient` (has a cookie jar) with `?crumb=` appended.
 

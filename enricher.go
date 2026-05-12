@@ -371,6 +371,19 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 	go func() {
 		defer p1.Done()
 		h, err := e.providers.Financials.FetchQuarterlyActuals(res.Symbol)
+		// Fall back to Yahoo quoteSummary when the primary provider returns no
+		// data. This is the path for US-listed Foreign Private Issuers (e.g.
+		// NBIS — Nebius) which file 6-K interim reports instead of 10-Qs and
+		// therefore have no us-gaap quarterly facts in the SEC XBRL API.
+		usExchange := e.exCfg.Exchange == ExchangeUS || e.exCfg.Exchange == ""
+		if (err != nil || len(h) < 2) && usExchange {
+			yh, yerr := e.fetchYahooQuarterlyActuals(res.Symbol)
+			if yerr == nil && len(yh) >= 2 {
+				logf("Note: %s has no SEC quarterly data — using Yahoo fallback (%d quarters)", res.Symbol, len(yh))
+				history = yh
+				return
+			}
+		}
 		if err != nil || len(h) < 2 {
 			return
 		}
