@@ -1,4 +1,26 @@
 {
+  "BN": {
+    "peers": [
+      "BAM",
+      "CSU.TO",
+      "APO",
+      "SPGI",
+      "BN.TO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-13"
+  },
+  "CSCO": {
+    "peers": [
+      "ORCL",
+      "INTC",
+      "IBM",
+      "QCOM",
+      "PFE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-13"
+  },
   "DT": {
     "peers": [
       "DDOG",
@@ -8,6 +30,50 @@
     "source": "manual",
     "updated": "2026-05-12"
   },
+  "FPS": {
+    "peers": [
+      "MAIR",
+      "AVEX",
+      "YSS",
+      "EQPT",
+      "MWH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-13"
+  },
+  "KLAR": {
+    "peers": [
+      "BLSH",
+      "GEMI",
+      "FIGR",
+      "FIG",
+      "CHYM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-13"
+  },
+  "LGN": {
+    "peers": [
+      "BRCB",
+      "FPS",
+      "ECG",
+      "FIGR",
+      "KRMN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-13"
+  },
+  "MFC": {
+    "peers": [
+      "SLF",
+      "BNS",
+      "RY",
+      "CM",
+      "TD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-13"
+  },
   "NBIS": {
     "peers": [
       "CRWV",
@@ -16,6 +82,17 @@
     ],
     "source": "manual",
     "updated": "2026-05-12"
+  },
+  "NVMI": {
+    "peers": [
+      "CAMT",
+      "ONTO",
+      "TSEM",
+      "ENTG",
+      "UCTT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-13"
   },
   "TAK": {
     "peers": [
@@ -38,5 +115,16 @@
     ],
     "source": "yahoo",
     "updated": "2026-05-12"
+  },
+  "VIK": {
+    "peers": [
+      "AS",
+      "ULS",
+      "FLUT",
+      "NXT",
+      "RBRK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-13"
   }
 }

@@ -169,7 +169,7 @@ func TestFetchConcept_QuarterlySelection(t *testing.T) {
 	)
 	c := &SECClient{httpClient: newMockClient(tr)}
 
-	data, filed, starts, err := c.fetchConcept(320193, "Revenues")
+	data, filed, starts, err := c.fetchConcept(320193, "us-gaap", "Revenues")
 	if err != nil {
 		t.Fatalf("fetchConcept: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestFetchConcept_Q4Derivation(t *testing.T) {
 	)
 	c := &SECClient{httpClient: newMockClient(tr)}
 
-	data, filed, starts, err := c.fetchConcept(320193, "Revenues")
+	data, filed, starts, err := c.fetchConcept(320193, "us-gaap", "Revenues")
 	if err != nil {
 		t.Fatalf("fetchConcept: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestFetchConcept_ExplicitQ4WinsOverDerivation(t *testing.T) {
 	)
 	c := &SECClient{httpClient: newMockClient(tr)}
 
-	data, _, _, err := c.fetchConcept(320193, "Revenues")
+	data, _, _, err := c.fetchConcept(320193, "us-gaap", "Revenues")
 	if err != nil {
 		t.Fatalf("fetchConcept: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestFetchConcept_ExplicitQ4WinsOverDerivation(t *testing.T) {
 func TestFetchConcept_NotFound(t *testing.T) {
 	tr := newMockTransport().on("/us-gaap/Missing.json", 404, `{"error":"not found"}`, "application/json")
 	c := &SECClient{httpClient: newMockClient(tr)}
-	_, _, _, err := c.fetchConcept(320193, "Missing")
+	_, _, _, err := c.fetchConcept(320193, "us-gaap", "Missing")
 	if err == nil || !strings.Contains(err.Error(), "404") {
 		t.Errorf("expected 404 error, got %v", err)
 	}

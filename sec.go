@@ -212,57 +212,75 @@ func writeTickerCache(data []byte) {
 	_ = os.WriteFile(p, data, 0o644)
 }
 
-// FetchQuarterlyActuals returns the last 5 quarters of EPS (diluted) and revenue
-// for a stock symbol, sourced directly from SEC XBRL filings.
-func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error) {
-	cik, err := c.lookupCIK(symbol)
-	if err != nil {
-		return nil, err
-	}
+// taxonomyConceptResult holds one concept's quarterly values plus the period
+// metadata maps (filing date and period start) returned by fetchConcept.
+type taxonomyConceptResult struct {
+	data         map[string]float64
+	filingDates  map[string]string // period-end → filing date
+	periodStarts map[string]string // period-end → period start date
+	err          error
+}
 
-	// Fetch EPS and revenue concurrently.
-	type conceptResult struct {
-		data         map[string]float64
-		filingDates  map[string]string // period-end → filing date
-		periodStarts map[string]string // period-end → period start date
-		err          error
-	}
-	epsCh := make(chan conceptResult, 1)
-	revCh := make(chan conceptResult, 1)
+// fetchTaxonomyQuarterly runs the EPS + revenue concept lookups for one
+// taxonomy ("us-gaap" or "ifrs-full") concurrently and returns both results.
+// The concept names and broker-gross-revenue path are taxonomy-specific.
+func (c *SECClient) fetchTaxonomyQuarterly(cik int, taxonomy string) (epsRes, revRes taxonomyConceptResult) {
+	epsCh := make(chan taxonomyConceptResult, 1)
+	revCh := make(chan taxonomyConceptResult, 1)
 
-	go func() {
-		d, fd, ps, err := c.fetchConcept(cik, "EarningsPerShareDiluted")
-		epsCh <- conceptResult{d, fd, ps, err}
-	}()
-	go func() {
-		// Revenue concept names differ by sector/reporting standard. Try in order.
+	var epsConcepts, revConcepts []string
+	tryBrokerGross := false
+	switch taxonomy {
+	case "ifrs-full":
+		// IFRS filers tag diluted EPS under DilutedEarningsLossPerShare; some
+		// pre-2018 filings only have BasicEarningsLossPerShare.
+		epsConcepts = []string{"DilutedEarningsLossPerShare", "BasicEarningsLossPerShare"}
+		revConcepts = []string{"Revenue", "RevenueFromContractsWithCustomers"}
+	default:
+		epsConcepts = []string{"EarningsPerShareDiluted"}
 		// Many companies switched from "Revenues" to "RevenueFromContractWithCustomer..."
 		// when ASC 606 took effect (~2018). A concept is only accepted if it has data
 		// within the last 18 months — otherwise the old concept name silently wins
 		// and hides the current one (e.g. BSX, MCO).
-		recentCutoff := time.Now().AddDate(-1, -6, 0)
-		for _, name := range []string{
+		revConcepts = []string{
 			"Revenues",
 			"RevenuesNetOfInterestExpense", // broker-dealers, banks (e.g. IBKR, GS, MS)
 			"RevenueFromContractWithCustomerExcludingAssessedTax",
 			"RevenueFromContractWithCustomerIncludingAssessedTax",
 			"SalesRevenueNet",
 			"SalesRevenueGoodsNet",
-		} {
+		}
+		tryBrokerGross = true
+	}
+
+	go func() {
+		for _, name := range epsConcepts {
+			d, fd, ps, err := c.fetchConcept(cik, taxonomy, name)
+			if err == nil && len(d) > 0 {
+				epsCh <- taxonomyConceptResult{d, fd, ps, nil}
+				return
+			}
+		}
+		epsCh <- taxonomyConceptResult{nil, nil, nil, fmt.Errorf("no EPS concept found in %s", taxonomy)}
+	}()
+
+	go func() {
+		recentCutoff := time.Now().AddDate(-1, -6, 0)
+		for _, name := range revConcepts {
 			// Broker-dealers and banks: RevenuesNetOfInterestExpense is *net* revenue
 			// (gross interest income minus interest expense paid to customers, plus
 			// non-interest income). Yahoo Finance and most screeners report the *gross*
 			// figure — interest income + non-interest income — which produces a smaller
 			// P/S. Compute the gross sum per period and use it when available so our
 			// ratio matches what users see on comparison sites.
-			if name == "RevenuesNetOfInterestExpense" {
+			if tryBrokerGross && name == "RevenuesNetOfInterestExpense" {
 				if d, fd, ps, ok := c.fetchBrokerGrossRevenue(cik, recentCutoff); ok {
-					revCh <- conceptResult{d, fd, ps, nil}
+					revCh <- taxonomyConceptResult{d, fd, ps, nil}
 					return
 				}
 			}
 
-			d, fd, ps, err := c.fetchConcept(cik, name)
+			d, fd, ps, err := c.fetchConcept(cik, taxonomy, name)
 			if err != nil || len(d) == 0 {
 				continue
 			}
@@ -276,15 +294,34 @@ func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error
 				}
 			}
 			if hasRecent {
-				revCh <- conceptResult{d, fd, ps, nil}
+				revCh <- taxonomyConceptResult{d, fd, ps, nil}
 				return
 			}
 		}
-		revCh <- conceptResult{nil, nil, nil, fmt.Errorf("no revenue concept found")}
+		revCh <- taxonomyConceptResult{nil, nil, nil, fmt.Errorf("no revenue concept found in %s", taxonomy)}
 	}()
 
-	epsRes := <-epsCh
-	revRes := <-revCh
+	return <-epsCh, <-revCh
+}
+
+// FetchQuarterlyActuals returns the last 5 quarters of EPS (diluted) and revenue
+// for a stock symbol, sourced directly from SEC XBRL filings.
+func (c *SECClient) FetchQuarterlyActuals(symbol string) ([]QuarterActual, error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	epsRes, revRes := c.fetchTaxonomyQuarterly(cik, "us-gaap")
+
+	// Foreign Private Issuers (Canadian MJDS filers like BN, etc.) file under
+	// the ifrs-full taxonomy via 6-K / 40-F instead of 10-Q / 10-K. Retry there
+	// when us-gaap has nothing usable.
+	if len(epsRes.data) == 0 && len(revRes.data) == 0 {
+		if ie, ir := c.fetchTaxonomyQuarterly(cik, "ifrs-full"); len(ie.data) > 0 || len(ir.data) > 0 {
+			epsRes, revRes = ie, ir
+		}
+	}
 
 	if epsRes.err != nil && revRes.err != nil {
 		return nil, fmt.Errorf("no SEC data: %v | %v", epsRes.err, revRes.err)
@@ -346,13 +383,31 @@ type secConceptEntry struct {
 	Val    float64 `json:"val"`
 }
 
-// fetchConcept fetches quarterly values for one SEC XBRL concept.
-// Returns: values map (period-end → value), filing dates map (period-end → filed date),
-// period starts map (period-end → period start date).
-func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, map[string]string, map[string]string, error) {
+// taxonomyForms returns the set of SEC filing forms whose XBRL facts are
+// accepted, plus the subset that count as annual reports (for Q4 derivation).
+func taxonomyForms(taxonomy string) (accepted, annuals map[string]bool) {
+	switch taxonomy {
+	case "ifrs-full":
+		// Canadian MJDS filers (e.g. BN) use 40-F for annuals and 6-K for
+		// interim reports. 40-F/A amendments are also accepted; their later
+		// filed-date will win the per-period dedup.
+		accepted = map[string]bool{"6-K": true, "40-F": true, "40-F/A": true}
+		annuals = map[string]bool{"40-F": true, "40-F/A": true}
+	default:
+		accepted = map[string]bool{"10-Q": true, "10-K": true}
+		annuals = map[string]bool{"10-K": true}
+	}
+	return
+}
+
+// fetchConcept fetches quarterly values for one SEC XBRL concept in the given
+// taxonomy ("us-gaap" or "ifrs-full"). Returns: values map (period-end → value),
+// filing dates map (period-end → filed date), period starts map (period-end →
+// period start date).
+func (c *SECClient) fetchConcept(cik int, taxonomy, concept string) (map[string]float64, map[string]string, map[string]string, error) {
 	url := fmt.Sprintf(
-		"https://data.sec.gov/api/xbrl/companyconcept/CIK%010d/us-gaap/%s.json",
-		cik, concept,
+		"https://data.sec.gov/api/xbrl/companyconcept/CIK%010d/%s/%s.json",
+		cik, taxonomy, concept,
 	)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -381,22 +436,25 @@ func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, m
 		return nil, nil, nil, fmt.Errorf("decode: %w", err)
 	}
 
+	acceptedForms, annualForms := taxonomyForms(taxonomy)
+
 	// Use the first unit key (USD for revenue, USD/shares for EPS).
 	result := make(map[string]float64)
-	filingDates  := make(map[string]string) // period-end → most recent filed date
+	filingDates := make(map[string]string)  // period-end → most recent filed date
 	periodStarts := make(map[string]string) // period-end → period start date
 
-	type annualRec struct {
-		start  time.Time
-		end    time.Time
-		filed  string
-		val    float64
+	type periodRec struct {
+		start time.Time
+		end   time.Time
+		filed string
+		val   float64
 	}
-	var annuals []annualRec
+	var annuals []periodRec
+	var halves []periodRec // 6-month YTD entries (IFRS half-year reporters)
 
 	for _, entries := range raw.Units {
 		for _, e := range entries {
-			if e.Form != "10-Q" && e.Form != "10-K" {
+			if !acceptedForms[e.Form] {
 				continue
 			}
 			if e.Start == "" || e.End == "" {
@@ -419,19 +477,57 @@ func (c *SECClient) fetchConcept(cik int, concept string) (map[string]float64, m
 				continue
 			}
 
-			if days >= 75 && days <= 105 {
+			switch {
+			case days >= 75 && days <= 105:
 				// Single-quarter entry: keep the most recently filed version.
 				if prev, ok := filingDates[e.End]; !ok || e.Filed > prev {
 					result[e.End] = e.Val
 					filingDates[e.End] = e.Filed
 					periodStarts[e.End] = e.Start
 				}
-			} else if days >= 350 && days <= 380 && e.Form == "10-K" {
-				// Full-year 10-K entry: collect for Q4 derivation below.
-				annuals = append(annuals, annualRec{start, end, e.Filed, e.Val})
+			case days >= 175 && days <= 195:
+				// Half-year YTD entry — used to derive Q1 = H1 − Q2 below for
+				// IFRS half-year reporters (e.g. BN, which does not file
+				// standalone Q1 or Q3 quarters with the SEC).
+				halves = append(halves, periodRec{start, end, e.Filed, e.Val})
+			case days >= 350 && days <= 380 && annualForms[e.Form]:
+				// Full-year entry: used for Q4 derivation below.
+				annuals = append(annuals, periodRec{start, end, e.Filed, e.Val})
 			}
 		}
 		break // only process the first unit type
+	}
+
+	// Derive Q1 = H1 − Q2 from half-year YTD entries paired with the standalone
+	// Q2 quarter. Each H1 has start = fiscal year start; its matching Q2 has
+	// end = H1.end and start = H1.start + ~3 months.
+	for _, h := range halves {
+		// Q1 end = H1.start + 3 months − 1 day (approximately). We look up the
+		// matching Q2 by checking every existing quarter whose end equals H1.end.
+		q2End := h.end.Format("2006-01-02")
+		q2Val, hasQ2 := result[q2End]
+		if !hasQ2 {
+			continue
+		}
+		q2StartStr, hasQ2Start := periodStarts[q2End]
+		if !hasQ2Start {
+			continue
+		}
+		q2Start, err := time.Parse("2006-01-02", q2StartStr)
+		if err != nil {
+			continue
+		}
+		// Q2 must start strictly after H1 starts (Q2.start > H1.start).
+		if !q2Start.After(h.start) {
+			continue
+		}
+		q1End := q2Start.AddDate(0, 0, -1).Format("2006-01-02")
+		if _, exists := result[q1End]; exists {
+			continue // Q1 already directly tagged
+		}
+		result[q1End] = h.val - q2Val
+		filingDates[q1End] = h.filed
+		periodStarts[q1End] = h.start.Format("2006-01-02")
 	}
 
 	// Derive Q4 = Annual − (Q1 + Q2 + Q3) for each fiscal year where Q4 is
@@ -496,7 +592,7 @@ func (c *SECClient) fetchBrokerGrossRevenue(cik int, recentCutoff time.Time) (ma
 	var ii map[string]float64
 	var iiFD, iiPS map[string]string
 	for _, name := range []string{"InterestIncomeOperating", "InterestAndDividendIncomeOperating"} {
-		d, fd, ps, err := c.fetchConcept(cik, name)
+		d, fd, ps, err := c.fetchConcept(cik, "us-gaap", name)
 		if err == nil && len(d) > 0 {
 			ii, iiFD, iiPS = d, fd, ps
 			break
@@ -506,7 +602,7 @@ func (c *SECClient) fetchBrokerGrossRevenue(cik int, recentCutoff time.Time) (ma
 		return nil, nil, nil, false
 	}
 
-	ni, niFD, _, err := c.fetchConcept(cik, "NoninterestIncome")
+	ni, niFD, _, err := c.fetchConcept(cik, "us-gaap", "NoninterestIncome")
 	if err != nil || len(ni) == 0 {
 		return nil, nil, nil, false
 	}

@@ -97,7 +97,8 @@
       "Bash(uv pip *)",
       "Bash(.venv/bin/pytest)",
       "Bash(.venv/bin/llm-earnings-agent --help)",
-      "Bash(uv run *)"
+      "Bash(uv run *)",
+      "Bash(env)"
     ]
   }
 }
