@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -17,7 +19,10 @@ import (
 	"quarterly_results/internal/provider"
 	"quarterly_results/internal/report"
 	"quarterly_results/internal/source/finnhub"
+	"quarterly_results/internal/source/llmagent"
 	"quarterly_results/internal/source/nasdaq"
+	"quarterly_results/internal/source/yahoo"
+	"quarterly_results/internal/tracking"
 )
 
 const defaultMinMarketCap = 10_000_000_000.0 // $10 billion
@@ -36,7 +41,24 @@ func main() {
 	timingFlag := flag.String("timing", "", "Filter by earnings timing: bmo (before market open) | amc (after market close) | \"\" (all)")
 	backtestFlag := flag.Bool("backtest", false, "Run walk-forward Tier-1 backtest on each stock's prior reactions")
 	llmRatingFlag := flag.Bool("llm-rating", false, "Attach an LLM rating from the sibling llm-earnings-agent project")
+	llmAgentsFlag := flag.String("llm-agents", strings.Join(llmagent.DefaultAgents, ","),
+		"LLM specialist agents for --llm-rating: comma-separated subset of "+strings.Join(llmagent.AllAgents, ",")+", or all")
+	logPredsFlag := flag.Bool("log-predictions", false, "Append each upcoming report's Rating (and LLM rating) to --predictions-file")
+	predFileFlag := flag.String("predictions-file", tracking.DefaultPath, "JSON-lines prediction log for --log-predictions / --score-predictions")
+	scorePredsFlag := flag.Bool("score-predictions", false, "Score the prediction log against actual earnings reactions, then exit")
 	flag.Parse()
+
+	if *scorePredsFlag {
+		if err := scorePredictions(*predFileFlag, *outputFmt); err != nil {
+			log.Fatalf("--score-predictions: %v", err)
+		}
+		return
+	}
+
+	llmAgents, err := llmagent.ParseAgents(*llmAgentsFlag)
+	if err != nil {
+		log.Fatalf("--llm-agents: %v", err)
+	}
 
 	exCfg, err := exchange.ConfigByName(*exchangeFlag)
 	if err != nil {
@@ -186,12 +208,26 @@ func main() {
 	if *llmRatingFlag {
 		enricher.Config.LLMRating = true
 	}
+	enricher.Config.LLMAgents = llmAgents
+
+	var predLog *tracking.Log
+	if *logPredsFlag {
+		predLog = tracking.NewLog(*predFileFlag)
+	}
 
 	// Assemble each stock as it finishes and forward to the output channel.
 	resultCh := make(chan domain.EarningsResult, len(preliminary))
 	go func() {
+		logged := 0
 		for es := range enricher.EnrichStream(preliminary, calMap, macroCal) {
-			resultCh <- report.AssembleResult(prelimMap[es.Symbol], es.Summary)
+			r := report.AssembleResult(prelimMap[es.Symbol], es.Summary)
+			if predLog != nil {
+				logged += logPrediction(predLog, r, exCfg)
+			}
+			resultCh <- r
+		}
+		if predLog != nil {
+			logging.Logf("Logged %d prediction(s) to %s", logged, predLog.Path())
 		}
 		close(resultCh)
 	}()
@@ -264,4 +300,39 @@ func filterByMarketCap(events []domain.EarningsEvent, minCap, maxCap float64) []
 		out = append(out, e)
 	}
 	return out
+}
+
+// logPrediction appends r to the prediction log when it is a pre-earnings
+// call and reports how many records were written (0 or 1).
+func logPrediction(l *tracking.Log, r domain.EarningsResult, cfg exchange.Config) int {
+	rec, ok := tracking.NewRecord(r, cfg, time.Now())
+	if !ok {
+		return 0
+	}
+	if err := l.Append(rec); err != nil {
+		logging.Logf("Warning: could not log prediction for %s: %v", r.Symbol, err)
+		return 0
+	}
+	return 1
+}
+
+// scorePredictions scores the prediction log against the reactions that
+// followed and prints the track record (table, or JSON with --output json).
+func scorePredictions(path, outputFmt string) error {
+	records, err := tracking.Load(path)
+	if err != nil {
+		return err
+	}
+	logging.Logf("Scoring %d logged prediction(s) from %s ...", len(records), path)
+	client := &http.Client{Timeout: 30 * time.Second}
+	rep := tracking.Score(records, func(symbol string) ([]domain.PricePoint, error) {
+		return yahoo.FetchChartHistory(client, symbol)
+	}, time.Now())
+	if strings.ToLower(outputFmt) == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rep)
+	}
+	fmt.Print(tracking.FormatReport(rep, path))
+	return nil
 }

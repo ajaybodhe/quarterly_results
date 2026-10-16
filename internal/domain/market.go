@@ -18,7 +18,7 @@ type PeerResult struct {
 	// Revenue actual (consensus revenue estimate not available historically)
 	RevActual float64 `json:"rev_actual"`
 
-	// Price reaction — reaction day is BMO/AMC-aware (see comment on reactionDayFor)
+	// Price reaction — reaction day is BMO/AMC-aware (see indicators.ReactionDay)
 	AnnouncementDate string  `json:"announcement_date"` // 8-K date or earnings date
 	ReactionDay      string  `json:"reaction_day"`      // YYYY-MM-DD
 	PriorClose       float64 `json:"prior_close"`       // close before market saw results

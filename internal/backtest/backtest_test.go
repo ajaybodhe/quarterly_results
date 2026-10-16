@@ -19,9 +19,9 @@ func TestLabelFromReturn(t *testing.T) {
 		{1.0001, "Positive"},
 	}
 	for _, tc := range cases {
-		got := labelFromReturn(tc.ret)
+		got := LabelFromReturn(tc.ret)
 		if got != tc.want {
-			t.Errorf("labelFromReturn(%v) = %q, want %q", tc.ret, got, tc.want)
+			t.Errorf("LabelFromReturn(%v) = %q, want %q", tc.ret, got, tc.want)
 		}
 	}
 }

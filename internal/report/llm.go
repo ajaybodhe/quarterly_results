@@ -3,6 +3,7 @@ package report
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"quarterly_results/internal/domain"
 )
@@ -20,8 +21,12 @@ func WriteLLMRating(w io.Writer, r *domain.LLMRating) {
 	case "Negative":
 		mark = "▼"
 	}
+	source := r.Metadata.Model
+	if len(r.Metadata.Agents) > 0 {
+		source += " · " + strings.Join(r.Metadata.Agents, ",")
+	}
 	fmt.Fprintf(w, "LLM      %s %-9s  Score %+6.1f  Confidence %.0f%%  (%s)\n",
-		mark, r.Rating.Label, r.Rating.Score, r.Rating.Confidence*100, r.Metadata.Model)
+		mark, r.Rating.Label, r.Rating.Score, r.Rating.Confidence*100, source)
 	for _, reason := range r.Rating.TopReasons {
 		fmt.Fprintf(w, "         %s\n", reason)
 	}

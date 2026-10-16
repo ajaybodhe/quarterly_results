@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"quarterly_results/internal/domain"
-	"quarterly_results/internal/exchange"
 	"quarterly_results/internal/indicators"
 	"quarterly_results/internal/logging"
 	"quarterly_results/internal/provider"
@@ -18,63 +17,6 @@ import (
 	"quarterly_results/internal/source/nasdaq"
 	"quarterly_results/internal/source/sec"
 )
-
-// reactionDayFor returns the correct reaction day and prior-close price given:
-//   - announceDate: the date the company released earnings (8-K or calendar date)
-//   - earningsTime: "bmo" (before market open) or "amc"/"" (after close or unknown)
-//   - prices: sorted price history (oldest → newest)
-//
-// BMO: earnings known before market opens → market reacts that same day.
-//
-//	priorClose = close on (announceDate − 1), reactionDay = announceDate.
-//
-// AMC / unknown: earnings known after close → market reacts next working day.
-//
-//	priorClose = close on announceDate, reactionDay = exchange.NextWorkingDay(announceDate).
-//
-// Falls back to price-gap heuristic when earningsTime is "" and both days have data.
-func reactionDayFor(announceDate time.Time, earningsTime string, prices []domain.PricePoint) (
-	reactionDay time.Time, priorClose float64, ok bool,
-) {
-	dayBeforeClose, okDayBefore := indicators.ClosestPrice(prices, announceDate.AddDate(0, 0, -1))
-	announceDayClose, okAnnounce := indicators.ClosestPrice(prices, announceDate)
-
-	switch earningsTime {
-	case "bmo":
-		if !okDayBefore || dayBeforeClose == 0 {
-			return time.Time{}, 0, false
-		}
-		return announceDate, dayBeforeClose, true
-
-	case "amc":
-		if !okAnnounce || announceDayClose == 0 {
-			return time.Time{}, 0, false
-		}
-		return exchange.NextWorkingDay(announceDate), announceDayClose, true
-
-	default:
-		// Heuristic: compare absolute gap at announce-day open vs next-day open.
-		// Whichever side has the larger gap is likely the reaction day.
-		announceDayOpen := indicators.OpenOnDate(prices, announceDate)
-		nextDay := exchange.NextWorkingDay(announceDate)
-		nextDayOpen := indicators.OpenOnDate(prices, nextDay)
-
-		if okDayBefore && dayBeforeClose > 0 && announceDayOpen > 0 &&
-			okAnnounce && announceDayClose > 0 && nextDayOpen > 0 {
-			gapAnnounce := math.Abs(announceDayOpen-dayBeforeClose) / dayBeforeClose
-			gapNextDay := math.Abs(nextDayOpen-announceDayClose) / announceDayClose
-			if gapAnnounce > gapNextDay {
-				return announceDate, dayBeforeClose, okDayBefore
-			}
-			return nextDay, announceDayClose, okAnnounce
-		}
-		// Not enough price data — prefer AMC assumption (safer default).
-		if okAnnounce && announceDayClose > 0 {
-			return exchange.NextWorkingDay(announceDate), announceDayClose, true
-		}
-		return time.Time{}, 0, false
-	}
-}
 
 // Finder resolves sector peers for a target stock. It owns the data
 // sources the peer search needs so it can be wired independently of the Enricher.
@@ -278,7 +220,7 @@ func (f *Finder) Find(
 			epsEst, _ := f.prices.FetchHistoricalEPSEstimate(c.sym, annTime)
 
 			// ── 5. Price reaction (BMO/AMC-aware) ─────────────────────────────
-			rxnDay, priorClose, okRxn := reactionDayFor(annTime, c.time_, prices)
+			rxnDay, priorClose, okRxn := indicators.ReactionDay(annTime, c.time_, prices)
 			if !okRxn || priorClose == 0 {
 				return
 			}

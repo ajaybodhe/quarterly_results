@@ -35,6 +35,9 @@ type Config struct {
 	ComputeGEX   bool // compute dealer gamma exposure (requires --gex + --symbol)
 	RunBacktest  bool // run walk-forward Tier-1 backtest of recommendation signals
 	LLMRating    bool // call sibling llm-earnings-agent to attach an LLM rating
+	// LLMAgents selects the agent's specialists (see llmagent.ParseAgents);
+	// empty means llmagent.DefaultAgents.
+	LLMAgents []string
 }
 
 // Summary is the result produced by EnrichStream for one stock.
@@ -106,7 +109,7 @@ func (e *Enricher) EnrichStream(results []domain.EarningsResult, calendarRows ma
 				defer func() { <-sem }()
 				ch <- Summary{
 					Symbol:  res.Symbol,
-					Summary: e.buildSummary(res, calendarRows[res.Symbol], macroCal),
+					Summary: e.summarize(res, calendarRows[res.Symbol], macroCal),
 				}
 			}(r)
 		}
@@ -318,11 +321,13 @@ func (e *Enricher) buildSummary(res domain.EarningsResult, row domain.CalendarRo
 		}
 	}()
 
-	if e.Config.LLMRating {
+	// Text-only agents don't need this stock's result, so they run alongside
+	// the other fetches; payload-reading agents run after enrichment (llm.go).
+	if e.Config.LLMRating && !llmagent.NeedsPayload(e.Config.LLMAgents) {
 		p1.Add(1)
 		go func() {
 			defer p1.Done()
-			r, err := llmagent.FetchRating(context.Background(), res.Symbol)
+			r, err := llmagent.FetchRating(context.Background(), res.Symbol, llmagent.Options{Agents: e.Config.LLMAgents})
 			if err != nil {
 				logging.Logf("Warning: LLM rating unavailable for %s: %v", res.Symbol, err)
 				return

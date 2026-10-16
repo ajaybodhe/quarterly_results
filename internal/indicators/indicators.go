@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"quarterly_results/internal/domain"
+	"quarterly_results/internal/exchange"
 )
 
 // PctChange returns (newVal - oldVal) / |oldVal| × 100.
@@ -133,4 +134,61 @@ func RSI14(prices []domain.PricePoint) float64 {
 	}
 	rs := avgGain / avgLoss
 	return 100 - 100/(1+rs)
+}
+
+// ReactionDay returns the correct reaction day and prior-close price given:
+//   - announceDate: the date the company released earnings (8-K or calendar date)
+//   - earningsTime: "bmo" (before market open) or "amc"/"" (after close or unknown)
+//   - prices: sorted price history (oldest → newest)
+//
+// BMO: earnings known before market opens → market reacts that same day.
+//
+//	priorClose = close on (announceDate − 1), reactionDay = announceDate.
+//
+// AMC / unknown: earnings known after close → market reacts next working day.
+//
+//	priorClose = close on announceDate, reactionDay = exchange.NextWorkingDay(announceDate).
+//
+// Falls back to price-gap heuristic when earningsTime is "" and both days have data.
+func ReactionDay(announceDate time.Time, earningsTime string, prices []domain.PricePoint) (
+	reactionDay time.Time, priorClose float64, ok bool,
+) {
+	dayBeforeClose, okDayBefore := ClosestPrice(prices, announceDate.AddDate(0, 0, -1))
+	announceDayClose, okAnnounce := ClosestPrice(prices, announceDate)
+
+	switch earningsTime {
+	case "bmo":
+		if !okDayBefore || dayBeforeClose == 0 {
+			return time.Time{}, 0, false
+		}
+		return announceDate, dayBeforeClose, true
+
+	case "amc":
+		if !okAnnounce || announceDayClose == 0 {
+			return time.Time{}, 0, false
+		}
+		return exchange.NextWorkingDay(announceDate), announceDayClose, true
+
+	default:
+		// Heuristic: compare absolute gap at announce-day open vs next-day open.
+		// Whichever side has the larger gap is likely the reaction day.
+		announceDayOpen := OpenOnDate(prices, announceDate)
+		nextDay := exchange.NextWorkingDay(announceDate)
+		nextDayOpen := OpenOnDate(prices, nextDay)
+
+		if okDayBefore && dayBeforeClose > 0 && announceDayOpen > 0 &&
+			okAnnounce && announceDayClose > 0 && nextDayOpen > 0 {
+			gapAnnounce := math.Abs(announceDayOpen-dayBeforeClose) / dayBeforeClose
+			gapNextDay := math.Abs(nextDayOpen-announceDayClose) / announceDayClose
+			if gapAnnounce > gapNextDay {
+				return announceDate, dayBeforeClose, okDayBefore
+			}
+			return nextDay, announceDayClose, okAnnounce
+		}
+		// Not enough price data — prefer AMC assumption (safer default).
+		if okAnnounce && announceDayClose > 0 {
+			return exchange.NextWorkingDay(announceDate), announceDayClose, true
+		}
+		return time.Time{}, 0, false
+	}
 }

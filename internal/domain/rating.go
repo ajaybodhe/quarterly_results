@@ -55,12 +55,13 @@ type LLMSubRatings struct {
 }
 
 type LLMMetadata struct {
-	Model             string  `json:"model"`
-	Runtime           string  `json:"runtime"`
-	PromptVersion     string  `json:"prompt_version"`
-	Timestamp         string  `json:"timestamp"`
-	CostEstimateUSD   float64 `json:"cost_estimate_usd"`
-	TranscriptQuarter string  `json:"transcript_quarter,omitempty"`
+	Model             string   `json:"model"`
+	Runtime           string   `json:"runtime"`
+	PromptVersion     string   `json:"prompt_version"`
+	Timestamp         string   `json:"timestamp"`
+	CostEstimateUSD   float64  `json:"cost_estimate_usd"`
+	TranscriptQuarter string   `json:"transcript_quarter,omitempty"`
+	Agents            []string `json:"agents,omitempty"` // specialist agents requested for this run
 }
 
 // BacktestPoint is one historical {predicted, actual} pair: what the Tier-1

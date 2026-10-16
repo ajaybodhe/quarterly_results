@@ -64,7 +64,7 @@ func RunBacktest(s *domain.FinancialSummary, prices []domain.PricePoint, sicCode
 		if rec == nil {
 			continue
 		}
-		actualLabel := labelFromReturn(rxn.RetPct)
+		actualLabel := LabelFromReturn(rxn.RetPct)
 		predicted := rec.Label
 
 		hit := predicted != "Neutral" && predicted == actualLabel
@@ -198,9 +198,9 @@ func reconstructThinSummary(
 	return thin
 }
 
-// labelFromReturn buckets a reaction return into Positive/Negative/Neutral
+// LabelFromReturn buckets a reaction return into Positive/Negative/Neutral
 // using the same ±1% deadband used throughout the recommender.
-func labelFromReturn(retPct float64) string {
+func LabelFromReturn(retPct float64) string {
 	switch {
 	case retPct > 1:
 		return "Positive"
