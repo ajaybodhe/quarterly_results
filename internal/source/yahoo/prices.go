@@ -32,6 +32,10 @@ func NewPriceProvider(client *http.Client, cfg exchange.Config) *PriceProvider {
 type yahooChartResponse struct {
 	Chart struct {
 		Result []struct {
+			Meta struct {
+				ExchangeTimezoneName string `json:"exchangeTimezoneName"`
+				GMTOffset            int    `json:"gmtoffset"` // seconds
+			} `json:"meta"`
 			Timestamps []int64 `json:"timestamp"`
 			Indicators struct {
 				Quote []struct {
@@ -81,6 +85,15 @@ func FetchChartHistory(client *http.Client, symbol string) ([]domain.PricePoint,
 	if err := decodeJSON(resp.Body, &raw); err != nil {
 		return nil, err
 	}
+	return parseChart(raw, symbol)
+}
+
+// parseChart converts a chart response into daily bars dated at midnight UTC
+// of the exchange-local trading day — the convention every caller uses when
+// it parses a "YYYY-MM-DD" date. Yahoo stamps daily bars with the session
+// open (13:30 UTC for US stocks), which would otherwise sort after a
+// midnight-UTC target date and make ClosestPrice return the previous day.
+func parseChart(raw yahooChartResponse, symbol string) ([]domain.PricePoint, error) {
 	if raw.Chart.Error != nil {
 		return nil, fmt.Errorf("Yahoo Finance error: %s", raw.Chart.Error.Description)
 	}
@@ -93,6 +106,7 @@ func FetchChartHistory(client *http.Client, symbol string) ([]domain.PricePoint,
 		return nil, fmt.Errorf("no quote data for %s", symbol)
 	}
 	quotes := res.Indicators.Quote[0]
+	loc := chartLocation(res.Meta.ExchangeTimezoneName, res.Meta.GMTOffset)
 
 	var out []domain.PricePoint
 	for i, ts := range res.Timestamps {
@@ -105,7 +119,7 @@ func FetchChartHistory(client *http.Client, symbol string) ([]domain.PricePoint,
 			continue
 		}
 		out = append(out, domain.PricePoint{
-			Date:  time.Unix(ts, 0).UTC(),
+			Date:  tradingDate(ts, loc),
 			Open:  o,
 			Close: c,
 		})
@@ -115,6 +129,26 @@ func FetchChartHistory(client *http.Client, symbol string) ([]domain.PricePoint,
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
 	return out, nil
+}
+
+// chartLocation resolves the exchange timezone Yahoo reports for a chart,
+// falling back to its fixed GMT offset, then UTC.
+func chartLocation(name string, gmtOffset int) *time.Location {
+	if name != "" {
+		if loc, err := time.LoadLocation(name); err == nil {
+			return loc
+		}
+	}
+	if gmtOffset != 0 {
+		return time.FixedZone("exchange", gmtOffset)
+	}
+	return time.UTC
+}
+
+// tradingDate maps a bar timestamp to midnight UTC of its exchange-local date.
+func tradingDate(ts int64, loc *time.Location) time.Time {
+	y, m, d := time.Unix(ts, 0).In(loc).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 // FetchHistoricalEPSEstimate returns 0, nil for international stocks — Finnhub
