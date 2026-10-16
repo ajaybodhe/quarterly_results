@@ -379,6 +379,17 @@ func (e *Enricher) buildSummary(res EarningsResult, row CalendarRow, macro *Macr
 		if (err != nil || len(h) < 2) && usExchange {
 			yh, yerr := e.fetchYahooQuarterlyActuals(res.Symbol)
 			if yerr == nil && len(yh) >= 2 {
+				// Yahoo's quoteSummary caps at 4 trailing quarters, which leaves
+				// YoY math empty on every history row. Try to backfill older
+				// quarters from stockanalysis.com so we have ≥5 rows.
+				if sa, saErr := fetchSAQuarterlyHistory(e.yahooClient, res.Symbol); saErr == nil && len(sa) > 0 {
+					merged := mergeSAHistoryWithYahoo(yh, sa)
+					if len(merged) > len(yh) {
+						logf("Note: %s has no SEC quarterly data — Yahoo (%d) + stockanalysis backfill (%d total quarters)", res.Symbol, len(yh), len(merged))
+						history = merged
+						return
+					}
+				}
 				logf("Note: %s has no SEC quarterly data — using Yahoo fallback (%d quarters)", res.Symbol, len(yh))
 				history = yh
 				return

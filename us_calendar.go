@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"sort"
 	"strconv"
@@ -13,6 +14,128 @@ import (
 )
 
 const nasdaqCalendarURL = "https://api.nasdaq.com/api/calendar/earnings"
+
+// setNasdaqBrowserHeaders installs a full Chrome-like header set on the
+// request. api.nasdaq.com is fronted by Akamai's Bot Manager, which scores
+// requests using both JA3 TLS fingerprint and header profile. A minimal set
+// (UA + Accept + Origin + Referer) has been observed to hard-fail with a
+// 403 "Access Denied" HTML page even when the same URL succeeds from curl,
+// because Bot Manager expects the modern Client Hints and Sec-Fetch-*
+// headers a real Chrome sends. Setting them here nudges the score below
+// the block threshold.
+func setNasdaqBrowserHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	// Intentionally leave Accept-Encoding unset — Go's Transport adds "gzip"
+	// automatically and transparently decompresses, which only happens when
+	// the caller has not set the header explicitly.
+	req.Header.Set("Origin", "https://www.nasdaq.com")
+	req.Header.Set("Referer", "https://www.nasdaq.com/")
+	req.Header.Set("Sec-Ch-Ua", `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`)
+	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
+	req.Header.Set("Sec-Ch-Ua-Platform", `"macOS"`)
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	req.Header.Set("Connection", "keep-alive")
+}
+
+// nasdaqRetryBackoffs is the retry schedule used by nasdaqGetJSON on WAF
+// responses (403, 429, or 200-with-HTML challenge). Package-level so tests
+// can shrink it.
+var nasdaqRetryBackoffs = []time.Duration{500 * time.Millisecond, 1 * time.Second, 2 * time.Second}
+
+// nasdaqMinInterval is the minimum spacing between successive api.nasdaq.com
+// requests. Every caller passes through nasdaqSerializer, so this puts a
+// hard cap on how bursty we look to Akamai — parallel goroutines fan into
+// a single stream paced this many ms apart. Package-level so tests can
+// zero it out.
+var nasdaqMinInterval = 300 * time.Millisecond
+
+var (
+	nasdaqSerializer sync.Mutex
+	nasdaqLastCall   time.Time
+)
+
+// waitForNasdaqSlot blocks until enough time has passed since the previous
+// call to release the next one. Caller must hold nasdaqSerializer.
+func waitForNasdaqSlot() {
+	if nasdaqLastCall.IsZero() {
+		return
+	}
+	gap := time.Since(nasdaqLastCall)
+	if gap < nasdaqMinInterval {
+		time.Sleep(nasdaqMinInterval - gap)
+	}
+}
+
+// nasdaqGetJSON does a GET against api.nasdaq.com with browser headers and
+// retry-on-403/429. `dest` is the JSON destination for the decoded body
+// (must be a pointer). On a non-OK status the response body is read into an
+// error string (truncated) so the caller can distinguish WAF blocks
+// ("HTTP 403 (WAF)") from real errors. Retries: 3 attempts with jittered
+// backoff at 500ms, 1s, 2s.
+//
+// All Nasdaq calls funnel through this function under a package-level
+// serializer with nasdaqMinInterval spacing — the fan-in prevents the
+// parallel enrichment goroutines from firing bursts that trip the WAF.
+func nasdaqGetJSON(client *http.Client, url string, dest interface{}) error {
+	nasdaqSerializer.Lock()
+	defer nasdaqSerializer.Unlock()
+	waitForNasdaqSlot()
+	defer func() { nasdaqLastCall = time.Now() }()
+
+	backoffs := nasdaqRetryBackoffs
+	var lastErr error
+	for attempt := 0; attempt <= len(backoffs); attempt++ {
+		if attempt > 0 {
+			jitter := time.Duration(rand.Int63n(int64(300 * time.Millisecond)))
+			time.Sleep(backoffs[attempt-1] + jitter)
+		}
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return err
+		}
+		setNasdaqBrowserHeaders(req)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("HTTP GET: %w", err)
+			continue
+		}
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d (WAF)", resp.StatusCode)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			n := len(body)
+			if n > 120 {
+				n = 120
+			}
+			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body[:n]))
+		}
+		// Akamai's Bot Manager also returns HTTP 200 with a text/html challenge
+		// page (UTF-8-BOM-prefixed <html>...) instead of a 403 for some
+		// requests. Treat any non-JSON content-type as a WAF block and retry.
+		ct := resp.Header.Get("Content-Type")
+		if !strings.Contains(ct, "json") {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP 200 non-JSON (WAF challenge): content-type=%s", ct)
+			continue
+		}
+		err = json.NewDecoder(resp.Body).Decode(dest)
+		resp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("decode: %w", err)
+		}
+		return nil
+	}
+	return lastErr
+}
 
 // NasdaqClient fetches earnings data from Nasdaq's public calendar API.
 // No API key required; standard browser headers are needed.
@@ -57,34 +180,22 @@ func (c *NasdaqClient) FetchEarningsCalendar(from, to time.Time) ([]EarningsEven
 		rows []nasdaqRow
 	}
 
-	var (
-		dayResults []dayResult
-		mu         sync.Mutex
-		wg         sync.WaitGroup
-	)
-	sem := make(chan struct{}, 10)
+	var dayResults []dayResult
 
+	// The per-request pacing / retries / WAF handling live in nasdaqGetJSON,
+	// which serializes all Nasdaq calls through a single mutex with a
+	// minimum interval. The loop here just walks trading days.
 	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
 		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
 			continue
 		}
-		wg.Add(1)
-		go func(date time.Time) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			rows, err := c.fetchDay(date)
-			if err != nil {
-				logf("Warning: failed to fetch earnings for %s: %v", date.Format("2006-01-02"), err)
-				return
-			}
-			mu.Lock()
-			dayResults = append(dayResults, dayResult{date, rows})
-			mu.Unlock()
-		}(d)
+		rows, err := c.fetchDay(d)
+		if err != nil {
+			logf("Warning: failed to fetch earnings for %s: %v", d.Format("2006-01-02"), err)
+			continue
+		}
+		dayResults = append(dayResults, dayResult{d, rows})
 	}
-	wg.Wait()
 
 	sort.Slice(dayResults, func(i, j int) bool {
 		return dayResults[i].date.Before(dayResults[j].date)
@@ -143,38 +254,13 @@ func parseEPS(s string) float64 {
 
 func (c *NasdaqClient) fetchDay(date time.Time) ([]nasdaqRow, error) {
 	url := fmt.Sprintf("%s?date=%s", nasdaqCalendarURL, date.Format("2006-01-02"))
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Origin", "https://www.nasdaq.com")
-	req.Header.Set("Referer", "https://www.nasdaq.com/")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP GET: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		n := len(body)
-		if n > 200 {
-			n = 200
-		}
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body[:n]))
-	}
-
 	var raw struct {
 		Data struct {
 			Rows []nasdaqRow `json:"rows"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
+	if err := nasdaqGetJSON(c.httpClient, url, &raw); err != nil {
+		return nil, err
 	}
 	return raw.Data.Rows, nil
 }
@@ -202,19 +288,6 @@ func parseMarketCap(s string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
-// nasdaqHistoricalResponse is the raw shape from the Nasdaq historical prices API.
-type nasdaqHistoricalResponse struct {
-	Data struct {
-		TradesTable struct {
-			Rows []struct {
-				Date  string `json:"date"`  // "MM/DD/YYYY"
-				Open  string `json:"open"`  // "$123.45"
-				Close string `json:"close"` // "$123.45"
-			} `json:"rows"`
-		} `json:"tradesTable"`
-	} `json:"data"`
-}
-
 // nasdaqForecastResponse is the raw Nasdaq earnings-forecast API shape.
 type nasdaqForecastResponse struct {
 	Data struct {
@@ -237,127 +310,30 @@ type NasdaqPriceProvider struct {
 	httpClient *http.Client
 }
 
-// FetchPriceHistory returns ~18 months of daily OHLC data for symbol, oldest→newest.
-// Two parallel 9-month Nasdaq API calls are merged to work around the ~300-row cap.
+// FetchPriceHistory returns ~2 years of daily OHLC data for symbol,
+// oldest→newest.
+//
+// Historically this hit Nasdaq's /api/quote/{sym}/historical endpoint via
+// two parallel 9-month calls to work around a ~300-row cap. That endpoint
+// sits behind the same Akamai Bot Manager as the calendar and — because
+// the parallel fan-out is 2×N-qualifying-stocks bursts — was the biggest
+// contributor to IP bans. Yahoo's chart API returns ~500 daily bars in
+// one call for US tickers with no rate limits, so we delegate here and
+// keep our Nasdaq footprint to the calendar plus per-date EPS lookups.
 func (p *NasdaqPriceProvider) FetchPriceHistory(symbol string) ([]pricePoint, error) {
-	now := time.Now()
-	mid := now.AddDate(0, -9, 0)
-	old := now.AddDate(-1, -9, -7)
-
-	var (
-		seg1, seg2 []pricePoint
-		err1, err2 error
-		segWg      sync.WaitGroup
-	)
-	segWg.Add(2)
-	go func() { defer segWg.Done(); seg1, err1 = p.fetchRange(symbol, old, mid.AddDate(0, 0, 14)) }()
-	go func() { defer segWg.Done(); seg2, err2 = p.fetchRange(symbol, mid.AddDate(0, 0, -7), now) }()
-	segWg.Wait()
-
-	if err1 != nil && err2 != nil {
-		return nil, fmt.Errorf("both price history calls failed: %v; %v", err1, err2)
-	}
-
-	seen := make(map[string]bool)
-	var merged []pricePoint
-	for _, seg := range [][]pricePoint{seg1, seg2} {
-		for _, pp := range seg {
-			key := pp.Date.Format("2006-01-02")
-			if !seen[key] {
-				seen[key] = true
-				merged = append(merged, pp)
-			}
-		}
-	}
-	if len(merged) == 0 {
-		return nil, fmt.Errorf("no price data returned")
-	}
-	sort.Slice(merged, func(i, j int) bool { return merged[i].Date.Before(merged[j].Date) })
-	return merged, nil
-}
-
-func (p *NasdaqPriceProvider) fetchRange(symbol string, from, to time.Time) ([]pricePoint, error) {
-	url := fmt.Sprintf(
-		"https://api.nasdaq.com/api/quote/%s/historical?assetClass=stocks&fromdate=%s&limit=300&todate=%s&type=1",
-		symbol, from.Format("2006-01-02"), to.Format("2006-01-02"),
-	)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Referer", "https://www.nasdaq.com/")
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		n := len(body)
-		if n > 80 {
-			n = 80
-		}
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body[:n]))
-	}
-
-	var raw nasdaqHistoricalResponse
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
-	}
-
-	var out []pricePoint
-	for _, row := range raw.Data.TradesTable.Rows {
-		d, err := time.Parse("01/02/2006", row.Date)
-		if err != nil {
-			continue
-		}
-		c := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(row.Close), "$", ""), ",", "")
-		price, err := strconv.ParseFloat(c, 64)
-		if err != nil || price <= 0 {
-			continue
-		}
-		o := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(row.Open), "$", ""), ",", "")
-		openPrice, _ := strconv.ParseFloat(o, 64)
-		out = append(out, pricePoint{Date: d, Open: openPrice, Close: price})
-	}
-	// Nasdaq returns newest-first; reverse to oldest-first.
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return out, nil
+	return fetchYahooChartHistory(p.httpClient, symbol)
 }
 
 // FetchHistoricalEPSEstimate returns the consensus EPS estimate for symbol on the given date
 // by querying the Nasdaq earnings calendar for that specific date.
 func (p *NasdaqPriceProvider) FetchHistoricalEPSEstimate(symbol string, date time.Time) (float64, error) {
 	url := fmt.Sprintf("https://api.nasdaq.com/api/calendar/earnings?date=%s", date.Format("2006-01-02"))
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Origin", "https://www.nasdaq.com")
-	req.Header.Set("Referer", "https://www.nasdaq.com/")
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
 	var raw struct {
 		Data struct {
 			Rows []nasdaqRow `json:"rows"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := nasdaqGetJSON(p.httpClient, url, &raw); err != nil {
 		return 0, err
 	}
 

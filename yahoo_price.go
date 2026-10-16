@@ -42,6 +42,14 @@ type yahooChartResponse struct {
 
 // FetchPriceHistory fetches ~2 years of daily OHLC data from Yahoo Finance.
 func (p *YahooPriceProvider) FetchPriceHistory(symbol string) ([]pricePoint, error) {
+	return fetchYahooChartHistory(p.httpClient, symbol)
+}
+
+// fetchYahooChartHistory hits Yahoo's v8 chart API for ~2y of daily OHLC.
+// Works for both US and Yahoo-suffix tickers. Extracted so the US price
+// provider can call it directly without going through YahooPriceProvider's
+// international-only exchange config.
+func fetchYahooChartHistory(client *http.Client, symbol string) ([]pricePoint, error) {
 	url := fmt.Sprintf(
 		"https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1d&range=2y",
 		symbol,
@@ -53,7 +61,7 @@ func (p *YahooPriceProvider) FetchPriceHistory(symbol string) ([]pricePoint, err
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

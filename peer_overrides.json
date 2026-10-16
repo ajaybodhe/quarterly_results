@@ -1,4 +1,930 @@
 {
+  "A": {
+    "peers": [
+      "KEYS",
+      "HPQ",
+      "ADI",
+      "TMO",
+      "DHR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "AA": {
+    "peers": [
+      "CENX",
+      "KALU",
+      "CSTM",
+      "NHYDY",
+      "RIO",
+      "FCX",
+      "NUE"
+    ],
+    "source": "llm",
+    "updated": "2026-07-16"
+  },
+  "AAL": {
+    "peers": [
+      "DAL",
+      "UAL",
+      "LUV",
+      "CCL",
+      "NCLH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "AAPL": {
+    "peers": [
+      "AMZN",
+      "TSLA",
+      "GOOG",
+      "META",
+      "MSFT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-15"
+  },
+  "ABBV": {
+    "peers": [
+      "ABT",
+      "BMY",
+      "JNJ",
+      "GILD",
+      "MRK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "ABNB": {
+    "peers": [
+      "DASH",
+      "SNOW",
+      "ZM",
+      "UBER",
+      "SHOP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "ABT": {
+    "peers": [
+      "ABBV",
+      "BMY",
+      "JNJ",
+      "MDT",
+      "LLY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-15"
+  },
+  "ACGL": {
+    "peers": [
+      "AXS",
+      "RNR",
+      "WRB",
+      "BRO",
+      "AIZ"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "ADBE": {
+    "peers": [
+      "CRM",
+      "PYPL",
+      "NOW",
+      "SHOP",
+      "MA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-11"
+  },
+  "ADI": {
+    "peers": [
+      "MCHP",
+      "TXN",
+      "KLAC",
+      "LRCX",
+      "NXPI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "ADM": {
+    "peers": [
+      "BG",
+      "HRL",
+      "CAG",
+      "APD",
+      "CL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ADP": {
+    "peers": [
+      "PAYX",
+      "ITW",
+      "APD",
+      "EMR",
+      "AFL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "ADSK": {
+    "peers": [
+      "INTU",
+      "ADBE",
+      "WDAY",
+      "CDNS",
+      "SNPS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-28"
+  },
+  "AEE": {
+    "peers": [
+      "CMS",
+      "DTE",
+      "AJG",
+      "ETR",
+      "CNP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "AEG": {
+    "peers": [
+      "AFB",
+      "AFG",
+      "AHRT",
+      "AGD",
+      "ABG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-19"
+  },
+  "AEIS": {
+    "peers": [
+      "MKSI",
+      "ENTG",
+      "ACLS",
+      "MTSI",
+      "AAON"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "AEM": {
+    "peers": [
+      "KGC",
+      "NEM",
+      "AU",
+      "PAAS",
+      "RGLD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "AEO": {
+    "peers": [
+      "ANF",
+      "URBN",
+      "GAP",
+      "KSS",
+      "DKS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-09"
+  },
+  "AEP": {
+    "peers": [
+      "SO",
+      "D",
+      "DUK",
+      "EXC",
+      "ED"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "AER": {
+    "peers": [
+      "AGO",
+      "ALSN",
+      "ACGL",
+      "AGCO",
+      "AME"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "AFL": {
+    "peers": [
+      "CB",
+      "CINF",
+      "ADP",
+      "BEN",
+      "APD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "AFRM": {
+    "peers": [
+      "UPST",
+      "RBLX",
+      "U",
+      "SNOW",
+      "HOOD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-27"
+  },
+  "AGNC": {
+    "peers": [
+      "NLY",
+      "ARR",
+      "CIM",
+      "PSEC",
+      "TWO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "AIG": {
+    "peers": [
+      "C",
+      "MS",
+      "GS",
+      "AXP",
+      "WFC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "AIT": {
+    "peers": [
+      "AIN",
+      "BRC",
+      "MSM",
+      "ATR",
+      "ALG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "AJG": {
+    "peers": [
+      "AFG",
+      "AON",
+      "BRO",
+      "ABG",
+      "AFB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "ALAB": {
+    "peers": [
+      "CRDO",
+      "NBIS",
+      "VRT",
+      "CRWV",
+      "COHR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "ALB": {
+    "peers": [
+      "SQM",
+      "LAC",
+      "FMC",
+      "ENPH",
+      "NEE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "ALL": {
+    "peers": [
+      "PGR",
+      "CB",
+      "HIG",
+      "AFL",
+      "TRV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "ALLE": {
+    "peers": [
+      "AME",
+      "IEX",
+      "FTV",
+      "AIZ",
+      "VRSK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "ALLY": {
+    "peers": [
+      "SYF",
+      "CFG",
+      "COF",
+      "TFC",
+      "JEF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "AM": {
+    "peers": [
+      "AR",
+      "MPLX",
+      "WES",
+      "PAGP",
+      "PAA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "AMAT": {
+    "peers": [
+      "LRCX",
+      "KLAC",
+      "MU",
+      "TXN",
+      "QCOM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "AMCR": {
+    "peers": [
+      "BEN",
+      "ESS",
+      "AOS",
+      "ATO",
+      "FRT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-11"
+  },
+  "AMD": {
+    "peers": [
+      "INTC",
+      "MU",
+      "NFLX",
+      "PLTR",
+      "TSM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "AME": {
+    "peers": [
+      "IEX",
+      "ALLE",
+      "ROP",
+      "FTV",
+      "VRSK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "AMGN": {
+    "peers": [
+      "BIIB",
+      "GILD",
+      "BMY",
+      "MRK",
+      "LLY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "AMKR": {
+    "peers": [
+      "ASX",
+      "COHR",
+      "LSCC",
+      "KLIC",
+      "TER"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "AMP": {
+    "peers": [
+      "AIZ",
+      "AON",
+      "AVY",
+      "BEN",
+      "PFG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "AMRZ": {
+    "peers": [
+      "HOLN.SW",
+      "TTAM",
+      "WBI",
+      "KNF",
+      "JBS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "AMT": {
+    "peers": [
+      "CCI",
+      "DLR",
+      "PLD",
+      "EQIX",
+      "SBAC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "AMZN": {
+    "peers": [
+      "AAPL",
+      "TSLA",
+      "GOOG",
+      "META",
+      "MSFT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "ANET": {
+    "peers": [
+      "VRT",
+      "PANW",
+      "NOW",
+      "CRWD",
+      "AVGO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "AON": {
+    "peers": [
+      "MRSH",
+      "AJG",
+      "AIZ",
+      "ALLE",
+      "AMP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "APA": {
+    "peers": [
+      "DVN",
+      "EOG",
+      "APC",
+      "SLB",
+      "OXY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "APD": {
+    "peers": [
+      "ECL",
+      "LIN",
+      "PPG",
+      "ITW",
+      "DOV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "APH": {
+    "peers": [
+      "TEL",
+      "AME",
+      "CDNS",
+      "PWR",
+      "ANET"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "APO": {
+    "peers": [
+      "KKR",
+      "CG",
+      "ARES",
+      "BX",
+      "OWL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "APP": {
+    "peers": [
+      "VRT",
+      "CRWV",
+      "CRDO",
+      "ALAB",
+      "RDDT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "APTV": {
+    "peers": [
+      "BWA",
+      "FTV",
+      "IQV",
+      "LKQ",
+      "ALLE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ARCC": {
+    "peers": [
+      "HTGC",
+      "MAIN",
+      "AGNC",
+      "PSEC",
+      "MPT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "ARGX": {
+    "peers": [
+      "ASND",
+      "KRYS",
+      "GMAB",
+      "ALNY",
+      "LKFT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "ARM": {
+    "peers": [
+      "SMCI",
+      "AVGO",
+      "CRWV",
+      "MRVL",
+      "ASML"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "AS": {
+    "peers": [
+      "BIRK",
+      "VIK",
+      "ONON",
+      "ATAT",
+      "LTH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-17"
+  },
+  "ASML": {
+    "peers": [
+      "TSM",
+      "AVGO",
+      "LRCX",
+      "ARM",
+      "CRWD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "ASND": {
+    "peers": [
+      "ARGX",
+      "RARE",
+      "KRYS",
+      "MDGL",
+      "BBIO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "ASX": {
+    "peers": [
+      "UMC",
+      "AMKR",
+      "HIMX",
+      "LSCC",
+      "SIMO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "ATO": {
+    "peers": [
+      "AOS",
+      "ESS",
+      "LNT",
+      "CINF",
+      "CMS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "AVAV": {
+    "peers": [
+      "KTOS",
+      "RCAT",
+      "ONDS",
+      "LHX",
+      "VRT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-09"
+  },
+  "AVB": {
+    "peers": [
+      "EQR",
+      "ESS",
+      "BXP",
+      "UDR",
+      "CPT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "AVGO": {
+    "peers": [
+      "MU",
+      "TSM",
+      "MRVL",
+      "ASML",
+      "PLTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-02"
+  },
+  "AXON": {
+    "peers": [
+      "APP",
+      "HWM",
+      "AVAV",
+      "ANET",
+      "DDOG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "AXP": {
+    "peers": [
+      "V",
+      "MA",
+      "GS",
+      "WFC",
+      "CAT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "AYI": {
+    "peers": [
+      "AMG",
+      "LII",
+      "HUBB",
+      "AME",
+      "AWI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
+  "BA": {
+    "peers": [
+      "DIS",
+      "JPM",
+      "NFLX",
+      "KO",
+      "HD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "BABA": {
+    "peers": [
+      "BIDU",
+      "NFLX",
+      "PYPL",
+      "JD",
+      "NIO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "BAC": {
+    "peers": [
+      "C",
+      "JPM",
+      "WFC",
+      "F",
+      "PFE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-13"
+  },
+  "BALL": {
+    "peers": [
+      "RVTY",
+      "ALLE",
+      "FTV",
+      "IEX",
+      "AMCR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "BAM": {
+    "peers": [
+      "BN",
+      "BIP",
+      "BEP",
+      "MKL",
+      "KKR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "BAP": {
+    "peers": [
+      "BCH",
+      "IFS",
+      "CIB",
+      "BVN",
+      "BSAC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-13"
+  },
+  "BB": {
+    "peers": [
+      "AMC",
+      "GME",
+      "NOK",
+      "SNDL",
+      "CLOV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
+  "BBD": {
+    "peers": [
+      "ITUB",
+      "GGB",
+      "ABEV",
+      "BSBR",
+      "SID"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "BBDO": {
+    "peers": [
+      "BSAC",
+      "BSBR",
+      "AVAL",
+      "BCH",
+      "BDORY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "BBVA": {
+    "peers": [
+      "SAN",
+      "BSBR",
+      "SMFG",
+      "ITUB",
+      "BCS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "BBY": {
+    "peers": [
+      "TGT",
+      "LOW",
+      "KSS",
+      "GAP",
+      "M"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "BCS": {
+    "peers": [
+      "LYG",
+      "DB",
+      "UBS",
+      "HSBC",
+      "ING"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "BE": {
+    "peers": [
+      "VRT",
+      "NBIS",
+      "FCEL",
+      "OKLO",
+      "PLUG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "BG": {
+    "peers": [
+      "ADM",
+      "CF",
+      "MOS",
+      "TSN",
+      "NTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "BIDU": {
+    "peers": [
+      "JD",
+      "BABA",
+      "TCEHY",
+      "PDD",
+      "CRM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-17"
+  },
+  "BIIB": {
+    "peers": [
+      "REGN",
+      "AMGN",
+      "GILD",
+      "VRTX",
+      "ILMN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "BKNG": {
+    "peers": [
+      "EXPE",
+      "MAR",
+      "MELI",
+      "INTU",
+      "SPGI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "BLK": {
+    "peers": [
+      "BX",
+      "MS",
+      "GS",
+      "SCHW",
+      "MA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "BMO": {
+    "peers": [
+      "BNS",
+      "RY",
+      "TD",
+      "CM",
+      "BCE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-24"
+  },
+  "BMY": {
+    "peers": [
+      "MRK",
+      "ABT",
+      "LLY",
+      "ABBV",
+      "AMGN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
   "BN": {
     "peers": [
       "BAM",
@@ -9,6 +935,721 @@
     ],
     "source": "yahoo",
     "updated": "2026-05-13"
+  },
+  "BNS": {
+    "peers": [
+      "BMO",
+      "CM",
+      "RY",
+      "TD",
+      "BCE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-24"
+  },
+  "BNTX": {
+    "peers": [
+      "MRNA",
+      "NVAX",
+      "AZN",
+      "INO",
+      "VXRT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "BNY": {
+    "peers": [
+      "STT",
+      "USB",
+      "PNC",
+      "MTB",
+      "COF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "BP": {
+    "peers": [
+      "CVX",
+      "XOM",
+      "COP",
+      "OXY",
+      "SLB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "BPOP": {
+    "peers": [
+      "FBP",
+      "BOKF",
+      "OFG",
+      "CBSH",
+      "WTFC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "BR": {
+    "peers": [
+      "JKHY",
+      "CDW",
+      "IT",
+      "ADP",
+      "AVY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "BRO": {
+    "peers": [
+      "AJG",
+      "WRB",
+      "WST",
+      "AON",
+      "EXPD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "BSP": {
+    "peers": [
+      "BKT",
+      "LIME",
+      "DHF",
+      "QNT",
+      "GHI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "BSX": {
+    "peers": [
+      "MDT",
+      "SYK",
+      "EW",
+      "BAX",
+      "BDX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "BUD": {
+    "peers": [
+      "TAP",
+      "DEO",
+      "STZ",
+      "CL",
+      "PEP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "BURL": {
+    "peers": [
+      "ROST",
+      "FIVE",
+      "OLLI",
+      "BOOT",
+      "PVH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "BWXT": {
+    "peers": [
+      "LEU",
+      "SMR",
+      "NNE",
+      "OKLO",
+      "CEG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "BX": {
+    "peers": [
+      "KKR",
+      "BLK",
+      "MS",
+      "GS",
+      "APO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "BXP": {
+    "peers": [
+      "AVB",
+      "VNO",
+      "EQR",
+      "SLG",
+      "ESS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "C": {
+    "peers": [
+      "BAC",
+      "JPM",
+      "WFC",
+      "GS",
+      "F"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-13"
+  },
+  "CARR": {
+    "peers": [
+      "OTIS",
+      "TT",
+      "RTX",
+      "CTVA",
+      "LHX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "CASY": {
+    "peers": [
+      "MUSA",
+      "TXRH",
+      "CBRL",
+      "CTAS",
+      "TSCO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-09"
+  },
+  "CAT": {
+    "peers": [
+      "DE",
+      "MMM",
+      "JNJ",
+      "CVX",
+      "PG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "CB": {
+    "peers": [
+      "CINF",
+      "AFL",
+      "PGR",
+      "APD",
+      "ALL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "CBRE": {
+    "peers": [
+      "JLL",
+      "ALLE",
+      "FTV",
+      "IQV",
+      "REG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "CBRS": {
+    "peers": [
+      "CRWV",
+      "NBIS",
+      "ALAB",
+      "CRDO",
+      "COHR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-23"
+  },
+  "CCEP": {
+    "peers": [
+      "KOF",
+      "KDP",
+      "FMX",
+      "BSAC",
+      "CDW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "CCI": {
+    "peers": [
+      "AMT",
+      "SBAC",
+      "DLR",
+      "PLD",
+      "EQIX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "CCK": {
+    "peers": [
+      "SLGN",
+      "OI",
+      "ATR",
+      "PKG",
+      "GPK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "CDE": {
+    "peers": [
+      "HL",
+      "PAAS",
+      "KGC",
+      "EXK",
+      "AG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "CDNS": {
+    "peers": [
+      "SNPS",
+      "KLAC",
+      "LRCX",
+      "ANET",
+      "ADI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "CEG": {
+    "peers": [
+      "VST",
+      "OKLO",
+      "VRT",
+      "GEV",
+      "SMR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "CHTR": {
+    "peers": [
+      "CMCSA",
+      "MCO",
+      "TMUS",
+      "DVA",
+      "VRSN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "CHWY": {
+    "peers": [
+      "PTON",
+      "DOCU",
+      "ETSY",
+      "PINS",
+      "DKNG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-09"
+  },
+  "CI": {
+    "peers": [
+      "HUM",
+      "CNC",
+      "HCA",
+      "CAH",
+      "MCK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "CIEN": {
+    "peers": [
+      "GLW",
+      "LITE",
+      "NTAP",
+      "COHR",
+      "LU"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-02"
+  },
+  "CINF": {
+    "peers": [
+      "DOV",
+      "GPC",
+      "BEN",
+      "LEG",
+      "CB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "CL": {
+    "peers": [
+      "CLX",
+      "KMB",
+      "GIS",
+      "PEP",
+      "EMR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "CLH": {
+    "peers": [
+      "CWST",
+      "WCN",
+      "RSG",
+      "CR",
+      "DCI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "CLS": {
+    "peers": [
+      "CRDO",
+      "VRT",
+      "ALAB",
+      "COHR",
+      "APP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "CLX": {
+    "peers": [
+      "KMB",
+      "CL",
+      "GIS",
+      "MKC",
+      "HRL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "CM": {
+    "peers": [
+      "BNS",
+      "BMO",
+      "RY",
+      "TD",
+      "BCE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "CMC": {
+    "peers": [
+      "STLD",
+      "RS",
+      "CRS",
+      "WOR",
+      "ATI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
+  "CMCSA": {
+    "peers": [
+      "VZ",
+      "CVS",
+      "BMY",
+      "CHTR",
+      "TMUS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "CME": {
+    "peers": [
+      "ICE",
+      "CBOE",
+      "NDAQ",
+      "SPGI",
+      "MCO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "CMG": {
+    "peers": [
+      "SBUX",
+      "LULU",
+      "COST",
+      "CRM",
+      "NKE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "CMI": {
+    "peers": [
+      "DE",
+      "ETN",
+      "EMR",
+      "ITW",
+      "CAT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "CMS": {
+    "peers": [
+      "DTE",
+      "CNP",
+      "LNT",
+      "AEE",
+      "PNW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "CNC": {
+    "peers": [
+      "HUM",
+      "MOH",
+      "CI",
+      "HCA",
+      "EW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "CNI": {
+    "peers": [
+      "CP",
+      "NSC",
+      "UNP",
+      "CSX",
+      "ECL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "CNM": {
+    "peers": [
+      "FERG",
+      "APG",
+      "ESAB",
+      "HAYW",
+      "FBIN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-09"
+  },
+  "CNP": {
+    "peers": [
+      "CMS",
+      "NI",
+      "ETR",
+      "AEE",
+      "FE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "CNQ": {
+    "peers": [
+      "SU",
+      "CVE",
+      "ENB",
+      "IMO",
+      "TRP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "COF": {
+    "peers": [
+      "BNY",
+      "PNC",
+      "MS",
+      "AXP",
+      "USB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "COHR": {
+    "peers": [
+      "LITE",
+      "AAOI",
+      "CRDO",
+      "VRT",
+      "ALAB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "COIN": {
+    "peers": [
+      "HOOD",
+      "MSTR",
+      "PLTR",
+      "RBLX",
+      "SOFI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "COKE": {
+    "peers": [
+      "PEP",
+      "HSY",
+      "BUD",
+      "DPZ",
+      "NKE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "COO": {
+    "peers": [
+      "TFX",
+      "MTD",
+      "STE",
+      "XRAY",
+      "RMD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-04"
+  },
+  "COP": {
+    "peers": [
+      "CVX",
+      "PSX",
+      "XOM",
+      "BP",
+      "VLO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "COR": {
+    "peers": [
+      "DLR",
+      "EQIX",
+      "EXR",
+      "CPT",
+      "ARE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "COST": {
+    "peers": [
+      "WMT",
+      "HD",
+      "TGT",
+      "V",
+      "SBUX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-28"
+  },
+  "CP": {
+    "peers": [
+      "CNI",
+      "NSC",
+      "CSX",
+      "UNP",
+      "CNR.TO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "CPAY": {
+    "peers": [
+      "EG",
+      "RVTY",
+      "VLTO",
+      "BALL",
+      "KSPI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "CPRT": {
+    "peers": [
+      "VRSK",
+      "CTAS",
+      "ODFL",
+      "IDXX",
+      "ORLY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-10"
+  },
+  "CR": {
+    "peers": [
+      "DCI",
+      "CSL",
+      "IEX",
+      "GGG",
+      "CW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "CRDO": {
+    "peers": [
+      "ALAB",
+      "COHR",
+      "LITE",
+      "NBIS",
+      "VRT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-01"
+  },
+  "CRH": {
+    "peers": [
+      "MLM",
+      "EXP",
+      "VMC",
+      "JHX",
+      "FERG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "CRM": {
+    "peers": [
+      "ADBE",
+      "NOW",
+      "PYPL",
+      "SNOW",
+      "CRWD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "CRWD": {
+    "peers": [
+      "PANW",
+      "SNOW",
+      "ZS",
+      "NET",
+      "SHOP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "CRWV": {
+    "peers": [
+      "NBIS",
+      "IREN",
+      "APLD",
+      "CRCL",
+      "OKLO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-11"
   },
   "CSCO": {
     "peers": [
@@ -21,6 +1662,369 @@
     "source": "yahoo",
     "updated": "2026-05-13"
   },
+  "CSGP": {
+    "peers": [
+      "VRSK",
+      "CBRE",
+      "CPRT",
+      "TYL",
+      "MKTX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "CSX": {
+    "peers": [
+      "NSC",
+      "UNP",
+      "CNI",
+      "CP",
+      "DE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "CTAS": {
+    "peers": [
+      "GWW",
+      "DOV",
+      "CINF",
+      "ROP",
+      "ECL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "CTSH": {
+    "peers": [
+      "INFY",
+      "WIT",
+      "ADSK",
+      "FISV",
+      "FAST"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "CTVA": {
+    "peers": [
+      "DD",
+      "IFF",
+      "DOW",
+      "CF",
+      "NTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "CVE": {
+    "peers": [
+      "CNQ",
+      "SU",
+      "OVV",
+      "VET",
+      "IMO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "CVNA": {
+    "peers": [
+      "UPST",
+      "AFRM",
+      "COIN",
+      "W",
+      "PTON"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "CVS": {
+    "peers": [
+      "TGT",
+      "ABBV",
+      "BMY",
+      "UNH",
+      "ABT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "CVX": {
+    "peers": [
+      "XOM",
+      "COP",
+      "JNJ",
+      "PG",
+      "OXY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "CW": {
+    "peers": [
+      "HEI",
+      "WWD",
+      "DCO",
+      "TDY",
+      "HXL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "CX": {
+    "peers": [
+      "AMX",
+      "VMC",
+      "BBD",
+      "GGB",
+      "MLM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "D": {
+    "peers": [
+      "DUK",
+      "SO",
+      "AEP",
+      "EXC",
+      "ED"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "DASH": {
+    "peers": [
+      "ABNB",
+      "SNOW",
+      "AFRM",
+      "LYFT",
+      "RBLX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "DB": {
+    "peers": [
+      "BCS",
+      "UBS",
+      "HSBC",
+      "LYG",
+      "MS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "DD": {
+    "peers": [
+      "DOW",
+      "MMM",
+      "AA",
+      "HON",
+      "IP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "DDOG": {
+    "peers": [
+      "NET",
+      "ZS",
+      "CRWD",
+      "MDB",
+      "SNOW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "DE": {
+    "peers": [
+      "CAT",
+      "CMI",
+      "HON",
+      "UNP",
+      "FDX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-19"
+  },
+  "DECK": {
+    "peers": [
+      "CROX",
+      "ONON",
+      "DKS",
+      "LULU",
+      "ULTA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "DELL": {
+    "peers": [
+      "ORCL",
+      "CSCO",
+      "HPQ",
+      "IBM",
+      "EBAY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-28"
+  },
+  "DG": {
+    "peers": [
+      "DLTR",
+      "TJX",
+      "ROST",
+      "ULTA",
+      "AZO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "DGX": {
+    "peers": [
+      "LH",
+      "DVA",
+      "BDX",
+      "UHS",
+      "CAH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "DHI": {
+    "peers": [
+      "LEN",
+      "PHM",
+      "TOL",
+      "KBH",
+      "BZH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "DHR": {
+    "peers": [
+      "TMO",
+      "SYK",
+      "BDX",
+      "ZTS",
+      "ECL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "DINO": {
+    "peers": [
+      "PBF",
+      "PARR",
+      "MGY",
+      "PR",
+      "DK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "DIS": {
+    "peers": [
+      "NFLX",
+      "BA",
+      "KO",
+      "HD",
+      "JPM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "DKS": {
+    "peers": [
+      "WSM",
+      "KSS",
+      "AEO",
+      "DLTR",
+      "ULTA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-24"
+  },
+  "DLR": {
+    "peers": [
+      "EQIX",
+      "PLD",
+      "CCI",
+      "AMT",
+      "PSA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "DLTR": {
+    "peers": [
+      "DG",
+      "ROST",
+      "TJX",
+      "ULTA",
+      "ORLY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "DOCN": {
+    "peers": [
+      "DOCS",
+      "ASAN",
+      "PATH",
+      "UPST",
+      "GTLB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "DOCU": {
+    "peers": [
+      "ZM",
+      "TWLO",
+      "TDOC",
+      "OKTA",
+      "ROKU"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-04"
+  },
+  "DOV": {
+    "peers": [
+      "CINF",
+      "GPC",
+      "GWW",
+      "ITW",
+      "SWK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "DOW": {
+    "peers": [
+      "DD",
+      "MMM",
+      "BMY",
+      "HON",
+      "CTVA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "DRI": {
+    "peers": [
+      "EAT",
+      "YUM",
+      "CAKE",
+      "DPZ",
+      "CBRL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
   "DT": {
     "peers": [
       "DDOG",
@@ -29,6 +2033,567 @@
     ],
     "source": "manual",
     "updated": "2026-05-12"
+  },
+  "DTE": {
+    "peers": [
+      "CMS",
+      "AEE",
+      "ETR",
+      "PNW",
+      "EIX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "DUK": {
+    "peers": [
+      "SO",
+      "D",
+      "AEP",
+      "ED",
+      "EXC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "DVN": {
+    "peers": [
+      "APA",
+      "EOG",
+      "OXY",
+      "COP",
+      "SLB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "EBAY": {
+    "peers": [
+      "DELL",
+      "CSCO",
+      "QCOM",
+      "ORCL",
+      "HPQ"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "EC": {
+    "peers": [
+      "PBR-A",
+      "CIB",
+      "E",
+      "EQNR",
+      "PBR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ECL": {
+    "peers": [
+      "APD",
+      "SHW",
+      "CTAS",
+      "DOV",
+      "PPG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "ED": {
+    "peers": [
+      "SO",
+      "AEP",
+      "DUK",
+      "D",
+      "EXC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "EFX": {
+    "peers": [
+      "FIS",
+      "AVY",
+      "VRSK",
+      "CTAS",
+      "AME"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "EG": {
+    "peers": [
+      "RVTY",
+      "CPAY",
+      "ACGL",
+      "BALL",
+      "GL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "EGP": {
+    "peers": [
+      "FR",
+      "TRNO",
+      "HIW",
+      "KRC",
+      "ELS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "EIX": {
+    "peers": [
+      "ETR",
+      "SRE",
+      "FE",
+      "DTE",
+      "PEG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "EL": {
+    "peers": [
+      "ULTA",
+      "ELF",
+      "STZ",
+      "DHR",
+      "DG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "ELS": {
+    "peers": [
+      "SUI",
+      "CPT",
+      "EGP",
+      "MAA",
+      "UDR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "ELV": {
+    "peers": [
+      "MOH",
+      "HUM",
+      "CNC",
+      "CI",
+      "HCA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "EMR": {
+    "peers": [
+      "ITW",
+      "DOV",
+      "GPC",
+      "CL",
+      "KMB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "ENB": {
+    "peers": [
+      "EPD",
+      "KMI",
+      "ET",
+      "OKE",
+      "TRP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "ENLT": {
+    "peers": [
+      "BTSG",
+      "DINO",
+      "NXT",
+      "ESLT",
+      "RNW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ENTG": {
+    "peers": [
+      "MKSI",
+      "MPWR",
+      "ONTO",
+      "ACLS",
+      "KLIC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "EOG": {
+    "peers": [
+      "DVN",
+      "APA",
+      "FANG",
+      "SLB",
+      "COP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "EPD": {
+    "peers": [
+      "ET",
+      "KMI",
+      "ENB",
+      "PAA",
+      "MPLX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "EQIX": {
+    "peers": [
+      "DLR",
+      "PLD",
+      "AMT",
+      "CCI",
+      "SBAC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "EQNR": {
+    "peers": [
+      "TTE",
+      "E",
+      "SHEL",
+      "EC",
+      "PBR-A"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "EQR": {
+    "peers": [
+      "AVB",
+      "ESS",
+      "BXP",
+      "UDR",
+      "VNO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "EQT": {
+    "peers": [
+      "RRC",
+      "AR",
+      "EOG",
+      "LNG",
+      "FANG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "ERIE": {
+    "peers": [
+      "RLI",
+      "SIGI",
+      "RNR",
+      "BANF",
+      "MGRC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "ES": {
+    "peers": [
+      "EVRG",
+      "WEC",
+      "CMS",
+      "LNT",
+      "PNW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "ET": {
+    "peers": [
+      "EPD",
+      "MPLX",
+      "ENB",
+      "KMI",
+      "DVN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ETN": {
+    "peers": [
+      "EMR",
+      "PWR",
+      "CMI",
+      "VRT",
+      "PH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "ETR": {
+    "peers": [
+      "FE",
+      "EIX",
+      "DTE",
+      "EXC",
+      "PEG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "EVR": {
+    "peers": [
+      "LAZ",
+      "HLI",
+      "SF",
+      "JEF",
+      "ESNT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "EW": {
+    "peers": [
+      "BAX",
+      "BSX",
+      "RMD",
+      "SYK",
+      "BDX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "EWBC": {
+    "peers": [
+      "CATY",
+      "WTFC",
+      "CVBF",
+      "WBS",
+      "CFR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "EXE": {
+    "peers": [
+      "EQT",
+      "PR",
+      "AR",
+      "CHRD",
+      "CRGY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "EXPD": {
+    "peers": [
+      "CHRW",
+      "CTAS",
+      "FAST",
+      "JBHT",
+      "DOV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "EXPE": {
+    "peers": [
+      "BKNG",
+      "TRIP",
+      "MAR",
+      "WYNN",
+      "HLT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "EXR": {
+    "peers": [
+      "PSA",
+      "MAA",
+      "ESS",
+      "CUBE",
+      "ARE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "F": {
+    "peers": [
+      "GM",
+      "BAC",
+      "DIS",
+      "BA",
+      "C"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "FANG": {
+    "peers": [
+      "EOG",
+      "DVN",
+      "MPC",
+      "EQT",
+      "APA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "FAST": {
+    "peers": [
+      "EXPD",
+      "CTAS",
+      "GWW",
+      "CHRW",
+      "PAYX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-13"
+  },
+  "FCNCA": {
+    "peers": [
+      "FBNC",
+      "BOKF",
+      "FFIN",
+      "UMBF",
+      "EWBC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "FCX": {
+    "peers": [
+      "NEM",
+      "BHP",
+      "RIO",
+      "VALE",
+      "CLF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "FDX": {
+    "peers": [
+      "UPS",
+      "TGT",
+      "CAT",
+      "COST",
+      "MMM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-23"
+  },
+  "FE": {
+    "peers": [
+      "ETR",
+      "EXC",
+      "EIX",
+      "AEP",
+      "PEG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "FFIV": {
+    "peers": [
+      "AKAM",
+      "NTAP",
+      "CTSH",
+      "VRSN",
+      "CHKP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "FIS": {
+    "peers": [
+      "GPN",
+      "FISV",
+      "EFX",
+      "JKHY",
+      "FTV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "FIVE": {
+    "peers": [
+      "OLLI",
+      "BURL",
+      "ULTA",
+      "RH",
+      "DLTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-02"
+  },
+  "FIX": {
+    "peers": [
+      "EME",
+      "STRL",
+      "PWR",
+      "POWL",
+      "IESC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "FLEX": {
+    "peers": [
+      "SANM",
+      "JBL",
+      "CLS",
+      "NTAP",
+      "CIEN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "FMX": {
+    "peers": [
+      "KOF",
+      "TV",
+      "ASR",
+      "AMX",
+      "PAC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "FN": {
+    "peers": [
+      "COHR",
+      "AAOI",
+      "LITE",
+      "MTSI",
+      "CRDO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-17"
+  },
+  "FNV": {
+    "peers": [
+      "RGLD",
+      "WPM",
+      "AEM",
+      "PAAS",
+      "OR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-11"
   },
   "FPS": {
     "peers": [
@@ -41,6 +2606,875 @@
     "source": "yahoo",
     "updated": "2026-05-13"
   },
+  "FTNT": {
+    "peers": [
+      "PANW",
+      "ZS",
+      "CRWD",
+      "OKTA",
+      "ANET"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "FTV": {
+    "peers": [
+      "ALLE",
+      "IEX",
+      "AME",
+      "MTD",
+      "VRSK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "FUTU": {
+    "peers": [
+      "TIGR",
+      "BILI",
+      "PDD",
+      "BEKE",
+      "QFIN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-19"
+  },
+  "GD": {
+    "peers": [
+      "NOC",
+      "LMT",
+      "RTX",
+      "HON",
+      "LHX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "GE": {
+    "peers": [
+      "T",
+      "MCD",
+      "PFE",
+      "BAC",
+      "INTC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-15"
+  },
+  "GEHC": {
+    "peers": [
+      "GEV",
+      "WAB",
+      "WBD",
+      "VTRS",
+      "KVUE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "GEV": {
+    "peers": [
+      "GEHC",
+      "VRT",
+      "CEG",
+      "VST",
+      "OKLO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "GGG": {
+    "peers": [
+      "DCI",
+      "IEX",
+      "NDSN",
+      "LECO",
+      "FELE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "GIB": {
+    "peers": [
+      "OTEX",
+      "IT",
+      "DSGX",
+      "CACI",
+      "GIB-A.TO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "GILD": {
+    "peers": [
+      "AMGN",
+      "BIIB",
+      "ABBV",
+      "BMY",
+      "REGN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "GL": {
+    "peers": [
+      "WRB",
+      "AIZ",
+      "IEX",
+      "AON",
+      "ALLE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "GLW": {
+    "peers": [
+      "CIEN",
+      "AMAT",
+      "MRVL",
+      "TXN",
+      "QCOM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "GM": {
+    "peers": [
+      "F",
+      "BA",
+      "KO",
+      "JPM",
+      "DIS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "GNRC": {
+    "peers": [
+      "URI",
+      "CARR",
+      "DXCM",
+      "ENPH",
+      "RH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "GOOG": {
+    "peers": [
+      "AAPL",
+      "AMZN",
+      "META",
+      "TSLA",
+      "MSFT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "GOOGL": {
+    "peers": [
+      "AVGO",
+      "NFLX",
+      "BABA",
+      "V",
+      "AMD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "GPC": {
+    "peers": [
+      "DOV",
+      "CINF",
+      "GWW",
+      "LEG",
+      "ITW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "GRAB": {
+    "peers": [
+      "OSCR",
+      "HIMS",
+      "NU",
+      "ZETA",
+      "BBAI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "GRMN": {
+    "peers": [
+      "CTSH",
+      "ADSK",
+      "EXPD",
+      "FAST",
+      "AKAM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "GS": {
+    "peers": [
+      "MS",
+      "JPM",
+      "WFC",
+      "C",
+      "AXP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-13"
+  },
+  "GSK": {
+    "peers": [
+      "SNY",
+      "NVS",
+      "AZN",
+      "BMY",
+      "MRK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "GWRE": {
+    "peers": [
+      "TYL",
+      "QTWO",
+      "SSNC",
+      "PCTY",
+      "APPF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-04"
+  },
+  "GWW": {
+    "peers": [
+      "DOV",
+      "ITW",
+      "GPC",
+      "CTAS",
+      "CINF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "HAL": {
+    "peers": [
+      "SLB",
+      "RIG",
+      "COP",
+      "DVN",
+      "VLO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "HAS": {
+    "peers": [
+      "MAT",
+      "GPC",
+      "MKC",
+      "IFF",
+      "DRI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "HBAN": {
+    "peers": [
+      "FITB",
+      "KEY",
+      "RF",
+      "PNC",
+      "ZION"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "HCA": {
+    "peers": [
+      "UHS",
+      "THC",
+      "HUM",
+      "CI",
+      "CNC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "HD": {
+    "peers": [
+      "WMT",
+      "PG",
+      "LOW",
+      "KO",
+      "DIS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-17"
+  },
+  "HEI": {
+    "peers": [
+      "TDG",
+      "CW",
+      "HXL",
+      "HWM",
+      "HII"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-25"
+  },
+  "HIG": {
+    "peers": [
+      "LNC",
+      "ALL",
+      "PFG",
+      "MET",
+      "CB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "HLT": {
+    "peers": [
+      "MAR",
+      "H",
+      "UAL",
+      "EXPE",
+      "RCL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "HMY": {
+    "peers": [
+      "GFI",
+      "AU",
+      "IAG",
+      "KGC",
+      "EGO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "HON": {
+    "peers": [
+      "MMM",
+      "CAT",
+      "LMT",
+      "DD",
+      "GD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "HONA": {
+    "peers": [
+      "SOLS",
+      "FDXF",
+      "QNT",
+      "HON",
+      "AADX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "HOOD": {
+    "peers": [
+      "COIN",
+      "SOFI",
+      "PLTR",
+      "MSTR",
+      "CRWV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "HPE": {
+    "peers": [
+      "HPQ",
+      "DXC",
+      "WDC",
+      "STX",
+      "ANET"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-02"
+  },
+  "HPQ": {
+    "peers": [
+      "IBM",
+      "DELL",
+      "HPE",
+      "CSCO",
+      "ORCL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "HRL": {
+    "peers": [
+      "MKC",
+      "GPC",
+      "DOV",
+      "CPB",
+      "SJM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "HSBC": {
+    "peers": [
+      "BCS",
+      "UBS",
+      "DB",
+      "SAN",
+      "LYG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "HUBB": {
+    "peers": [
+      "IEX",
+      "LII",
+      "NDSN",
+      "TT",
+      "AME"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "HUBS": {
+    "peers": [
+      "TEAM",
+      "MDB",
+      "PAYC",
+      "ZS",
+      "OKTA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "HUM": {
+    "peers": [
+      "CI",
+      "CNC",
+      "HCA",
+      "UNH",
+      "MCK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "HUT": {
+    "peers": [
+      "KEEL",
+      "HIVE",
+      "CIFR",
+      "CLSK",
+      "WULF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "HWM": {
+    "peers": [
+      "LHX",
+      "TDG",
+      "HII",
+      "TT",
+      "AXON"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "IBKR": {
+    "peers": [
+      "CBOE",
+      "SCHW",
+      "CME",
+      "ICE",
+      "APO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "IBM": {
+    "peers": [
+      "CSCO",
+      "ORCL",
+      "INTC",
+      "JNJ",
+      "WMT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "ICE": {
+    "peers": [
+      "CME",
+      "NDAQ",
+      "CBOE",
+      "SPGI",
+      "MCO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "ICLR": {
+    "peers": [
+      "CRL",
+      "IQV",
+      "MEDP",
+      "BRKR",
+      "WST"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-23"
+  },
+  "IDXX": {
+    "peers": [
+      "ZTS",
+      "DXCM",
+      "ALGN",
+      "MTD",
+      "RMD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "IEX": {
+    "peers": [
+      "AME",
+      "ALLE",
+      "FTV",
+      "MTD",
+      "NDSN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "IMO": {
+    "peers": [
+      "CNQ",
+      "CVE",
+      "SU",
+      "E",
+      "MUR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "INCY": {
+    "peers": [
+      "BMRN",
+      "VRTX",
+      "REGN",
+      "EXEL",
+      "ALNY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "INFY": {
+    "peers": [
+      "WIT",
+      "IBN",
+      "CTSH",
+      "HDB",
+      "RDY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "ING": {
+    "peers": [
+      "BCS",
+      "UBS",
+      "LYG",
+      "BBVA",
+      "AEG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "INIO": {
+    "peers": [
+      "AADX",
+      "FPS",
+      "MAIR",
+      "QNT",
+      "AVEX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "INTC": {
+    "peers": [
+      "AMD",
+      "CSCO",
+      "IBM",
+      "PFE",
+      "JPM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "INTU": {
+    "peers": [
+      "ADBE",
+      "ADSK",
+      "NOW",
+      "WDAY",
+      "SNPS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-25"
+  },
+  "IONQ": {
+    "peers": [
+      "RGTI",
+      "QBTS",
+      "QUBT",
+      "OKLO",
+      "CRWV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "IOT": {
+    "peers": [
+      "GTLB",
+      "TOST",
+      "MNDY",
+      "SYM",
+      "RBRK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-04"
+  },
+  "IQV": {
+    "peers": [
+      "MTD",
+      "FTV",
+      "COO",
+      "TFX",
+      "CRL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "IR": {
+    "peers": [
+      "PH",
+      "ITW",
+      "ALLE",
+      "DOV",
+      "MAS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "IREN": {
+    "peers": [
+      "NBIS",
+      "CRWV",
+      "CIFR",
+      "APLD",
+      "ONDS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-27"
+  },
+  "IT": {
+    "peers": [
+      "CDW",
+      "JKHY",
+      "MTD",
+      "VRSK",
+      "FTV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ITUB": {
+    "peers": [
+      "BBD",
+      "ABEV",
+      "BSBR",
+      "GGB",
+      "CIG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "ITW": {
+    "peers": [
+      "DOV",
+      "GWW",
+      "EMR",
+      "GPC",
+      "APD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "IVZ": {
+    "peers": [
+      "BEN",
+      "HST",
+      "NTRS",
+      "LNC",
+      "PFG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "JAZZ": {
+    "peers": [
+      "BMRN",
+      "UTHR",
+      "ALNY",
+      "INCY",
+      "NBIX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "JBHT": {
+    "peers": [
+      "CHRW",
+      "LSTR",
+      "ODFL",
+      "EXPD",
+      "KNX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-15"
+  },
+  "JCI": {
+    "peers": [
+      "ITW",
+      "EMR",
+      "ETN",
+      "IR",
+      "CMI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "JD": {
+    "peers": [
+      "PDD",
+      "BIDU",
+      "TCEHY",
+      "BABA",
+      "XYZ"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "JEF": {
+    "peers": [
+      "RJF",
+      "EVR",
+      "SF",
+      "LAZ",
+      "LPX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
+  "JKHY": {
+    "peers": [
+      "ROL",
+      "IT",
+      "IEX",
+      "MKTX",
+      "CDW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "JNJ": {
+    "peers": [
+      "PG",
+      "PFE",
+      "MRK",
+      "KO",
+      "XOM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "JPM": {
+    "peers": [
+      "C",
+      "BAC",
+      "GS",
+      "WFC",
+      "KO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-13"
+  },
+  "KEY": {
+    "peers": [
+      "HBAN",
+      "FITB",
+      "RF",
+      "PNC",
+      "MTB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "KEYS": {
+    "peers": [
+      "A",
+      "QRVO",
+      "FTV",
+      "CDW",
+      "CDNS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "KIM": {
+    "peers": [
+      "REG",
+      "EQR",
+      "BXP",
+      "VNO",
+      "AVB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "KKR": {
+    "peers": [
+      "APO",
+      "BX",
+      "CG",
+      "ARES",
+      "BLK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "KLAC": {
+    "peers": [
+      "LRCX",
+      "AMAT",
+      "ADI",
+      "TER",
+      "MCHP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
   "KLAR": {
     "peers": [
       "BLSH",
@@ -51,6 +3485,96 @@
     ],
     "source": "yahoo",
     "updated": "2026-05-13"
+  },
+  "KMB": {
+    "peers": [
+      "CLX",
+      "CL",
+      "GIS",
+      "PEP",
+      "EMR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "KMI": {
+    "peers": [
+      "EPD",
+      "WMB",
+      "PSX",
+      "OKE",
+      "ENB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "KNX": {
+    "peers": [
+      "WERN",
+      "HTLD",
+      "LSTR",
+      "JBHT",
+      "MRTN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "KO": {
+    "peers": [
+      "PG",
+      "JNJ",
+      "DIS",
+      "VZ",
+      "JPM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "LDOS": {
+    "peers": [
+      "SAIC",
+      "LHX",
+      "HII",
+      "BAH",
+      "CACI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "LEN": {
+    "peers": [
+      "DHI",
+      "PHM",
+      "TOL",
+      "KBH",
+      "HOV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-11"
+  },
+  "LEN.B": {
+    "peers": [
+      "DHI",
+      "PHM",
+      "NVR",
+      "TOL",
+      "KBH",
+      "TPH",
+      "MTH"
+    ],
+    "source": "llm",
+    "updated": "2026-06-11"
+  },
+  "LFUS": {
+    "peers": [
+      "LECO",
+      "FELE",
+      "BCPC",
+      "MZTI",
+      "LSTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
   },
   "LGN": {
     "peers": [
@@ -63,6 +3587,325 @@
     "source": "yahoo",
     "updated": "2026-05-13"
   },
+  "LHX": {
+    "peers": [
+      "RTX",
+      "HII",
+      "NOC",
+      "LDOS",
+      "GD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "LII": {
+    "peers": [
+      "WSO",
+      "IEX",
+      "HUBB",
+      "LECO",
+      "NDSN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "LIN": {
+    "peers": [
+      "APD",
+      "SPGI",
+      "ECL",
+      "SHW",
+      "ROP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "LITE": {
+    "peers": [
+      "COHR",
+      "AAOI",
+      "CRDO",
+      "NBIS",
+      "VRT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-11"
+  },
+  "LLY": {
+    "peers": [
+      "BMY",
+      "MRK",
+      "NVO",
+      "ABT",
+      "AVGO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "LMT": {
+    "peers": [
+      "NOC",
+      "GD",
+      "RTX",
+      "BA",
+      "HON"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "LNG": {
+    "peers": [
+      "EQT",
+      "EOG",
+      "DVN",
+      "FANG",
+      "CQP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "LOGI": {
+    "peers": [
+      "CRSR",
+      "CHGG",
+      "ZBRA",
+      "RNG",
+      "ADSK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "LOW": {
+    "peers": [
+      "HD",
+      "TGT",
+      "PEP",
+      "WMT",
+      "COST"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "LRCX": {
+    "peers": [
+      "KLAC",
+      "AMAT",
+      "ASML",
+      "AVGO",
+      "MRVL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "LULU": {
+    "peers": [
+      "CMG",
+      "NKE",
+      "CRM",
+      "SHOP",
+      "ULTA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-04"
+  },
+  "LUV": {
+    "peers": [
+      "DAL",
+      "UAL",
+      "AAL",
+      "JBLU",
+      "CCL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "LVS": {
+    "peers": [
+      "WYNN",
+      "MGM",
+      "CZR",
+      "BYD",
+      "PENN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "LYG": {
+    "peers": [
+      "BCS",
+      "SAN",
+      "DB",
+      "ING",
+      "ITUB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "LYV": {
+    "peers": [
+      "EXPE",
+      "HLT",
+      "MTCH",
+      "MAR",
+      "TPR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "MA": {
+    "peers": [
+      "V",
+      "AXP",
+      "PYPL",
+      "CRM",
+      "ADBE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "MAS": {
+    "peers": [
+      "MHK",
+      "IFF",
+      "IR",
+      "MLM",
+      "RHI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "MCD": {
+    "peers": [
+      "T",
+      "GE",
+      "WMT",
+      "KO",
+      "JNJ"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "MCHP": {
+    "peers": [
+      "ADI",
+      "KLAC",
+      "ON",
+      "NXPI",
+      "LRCX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "MCK": {
+    "peers": [
+      "CAH",
+      "HUM",
+      "CI",
+      "HCA",
+      "LH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "MCO": {
+    "peers": [
+      "SPGI",
+      "MTB",
+      "MSCI",
+      "DVA",
+      "ICE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "MDB": {
+    "peers": [
+      "DDOG",
+      "ZS",
+      "OKTA",
+      "TEAM",
+      "TWLO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-28"
+  },
+  "MDLN": {
+    "peers": [
+      "HNGE",
+      "GEMI",
+      "FIGR",
+      "STUB",
+      "KLAR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "MDLZ": {
+    "peers": [
+      "KHC",
+      "PM",
+      "GIS",
+      "CL",
+      "HSY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "MDT": {
+    "peers": [
+      "ABT",
+      "BSX",
+      "SYK",
+      "AMGN",
+      "BMY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-02"
+  },
+  "MEDP": {
+    "peers": [
+      "KNSL",
+      "IQV",
+      "ICLR",
+      "LNTH",
+      "SAIA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "MELI": {
+    "peers": [
+      "TTD",
+      "SHOP",
+      "SE",
+      "CRWD",
+      "DDOG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "MET": {
+    "peers": [
+      "PRU",
+      "HIG",
+      "ALL",
+      "LNC",
+      "AFL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "META": {
+    "peers": [
+      "AAPL",
+      "AMZN",
+      "GOOG",
+      "TSLA",
+      "NFLX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
   "MFC": {
     "peers": [
       "SLF",
@@ -74,6 +3917,251 @@
     "source": "yahoo",
     "updated": "2026-05-13"
   },
+  "MKC": {
+    "peers": [
+      "HRL",
+      "SJM",
+      "CLX",
+      "GWW",
+      "GPC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
+  "MKC.V": {
+    "peers": [
+      "SJM",
+      "KHC",
+      "CAG",
+      "GIS",
+      "CPB",
+      "LANC",
+      "HRL",
+      "IFF"
+    ],
+    "source": "llm",
+    "updated": "2026-06-24"
+  },
+  "MMM": {
+    "peers": [
+      "JNJ",
+      "CAT",
+      "PG",
+      "PEP",
+      "HON"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "MNST": {
+    "peers": [
+      "ROST",
+      "ORLY",
+      "ULTA",
+      "MDLZ",
+      "DLTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "MO": {
+    "peers": [
+      "PM",
+      "JNJ",
+      "PG",
+      "VZ",
+      "MRK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "MOH": {
+    "peers": [
+      "CNC",
+      "HUM",
+      "ELV",
+      "UHS",
+      "CI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "MPC": {
+    "peers": [
+      "PSX",
+      "VLO",
+      "EOG",
+      "FANG",
+      "DVN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "MPLX": {
+    "peers": [
+      "WES",
+      "EPD",
+      "ET",
+      "PAA",
+      "OKE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "MPWR": {
+    "peers": [
+      "ON",
+      "MCHP",
+      "CDNS",
+      "KLAC",
+      "LSCC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "MRK": {
+    "peers": [
+      "PFE",
+      "JNJ",
+      "PG",
+      "BMY",
+      "VZ"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "MRSH": {
+    "peers": [
+      "AON",
+      "AJG",
+      "PGR",
+      "CB",
+      "NTRS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "MRVL": {
+    "peers": [
+      "AVGO",
+      "MU",
+      "SNDK",
+      "TSM",
+      "ARM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-27"
+  },
+  "MS": {
+    "peers": [
+      "GS",
+      "WFC",
+      "C",
+      "JPM",
+      "AXP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "MSCI": {
+    "peers": [
+      "SPGI",
+      "MCO",
+      "MKTX",
+      "VRSK",
+      "FICO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "MSFT": {
+    "peers": [
+      "AAPL",
+      "AMZN",
+      "GOOG",
+      "NVDA",
+      "META"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "MSI": {
+    "peers": [
+      "MMI",
+      "TEL",
+      "APH",
+      "FIS",
+      "ROP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "MSTR": {
+    "peers": [
+      "COIN",
+      "SMCI",
+      "MARA",
+      "HOOD",
+      "PLTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "MT": {
+    "peers": [
+      "STLD",
+      "NUE",
+      "PKX",
+      "CLF",
+      "GGB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "MU": {
+    "peers": [
+      "AVGO",
+      "AMD",
+      "TSM",
+      "MRVL",
+      "QCOM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
+  "MUFG": {
+    "peers": [
+      "SMFG",
+      "MFG",
+      "NMR",
+      "NWG",
+      "BSBR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "MUSA": {
+    "peers": [
+      "CASY",
+      "GPI",
+      "PAG",
+      "MUR",
+      "LAD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "NAVN": {
+    "peers": [
+      "PTRN",
+      "NTSK",
+      "YSS",
+      "STUB",
+      "FIGR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-09"
+  },
   "NBIS": {
     "peers": [
       "CRWV",
@@ -82,6 +4170,229 @@
     ],
     "source": "manual",
     "updated": "2026-05-12"
+  },
+  "NDAQ": {
+    "peers": [
+      "ICE",
+      "CME",
+      "CBOE",
+      "SPGI",
+      "MCO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "NDSN": {
+    "peers": [
+      "MZTI",
+      "SCL",
+      "IEX",
+      "DOV",
+      "FUL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-19"
+  },
+  "NEE": {
+    "peers": [
+      "D",
+      "DUK",
+      "SO",
+      "ABBV",
+      "AEP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "NEM": {
+    "peers": [
+      "AEM",
+      "B",
+      "KGC",
+      "FCX",
+      "ABX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "NET": {
+    "peers": [
+      "DDOG",
+      "CRWD",
+      "ZS",
+      "SNOW",
+      "OKTA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "NFLX": {
+    "peers": [
+      "DIS",
+      "WBD",
+      "PARA",
+      "CMCSA",
+      "AMZN",
+      "AAPL",
+      "SPOT",
+      "ROKU"
+    ],
+    "source": "llm",
+    "updated": "2026-07-16"
+  },
+  "NLY": {
+    "peers": [
+      "AGNC",
+      "CIM",
+      "TWO",
+      "MFA",
+      "EPD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "NOC": {
+    "peers": [
+      "GD",
+      "LMT",
+      "RTX",
+      "LHX",
+      "HON"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "NOK": {
+    "peers": [
+      "QCOM",
+      "BB",
+      "CSCO",
+      "AMC",
+      "ORCL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "NOW": {
+    "peers": [
+      "CRM",
+      "CRWD",
+      "PANW",
+      "SNOW",
+      "ADBE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "NRG": {
+    "peers": [
+      "AES",
+      "VST",
+      "ETR",
+      "CNP",
+      "CEG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "NSC": {
+    "peers": [
+      "CSX",
+      "UNP",
+      "CNI",
+      "CP",
+      "ITW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "NTAP": {
+    "peers": [
+      "VRSN",
+      "AKAM",
+      "FFIV",
+      "CIEN",
+      "KLAC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-28"
+  },
+  "NTES": {
+    "peers": [
+      "BIDU",
+      "JD",
+      "TCEHY",
+      "SOHU",
+      "PDD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-19"
+  },
+  "NTNX": {
+    "peers": [
+      "MDB",
+      "TWLO",
+      "OKTA",
+      "WDAY",
+      "P"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "NTR": {
+    "peers": [
+      "MOS",
+      "CF",
+      "CTVA",
+      "BG",
+      "TECK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "NTRA": {
+    "peers": [
+      "GH",
+      "VCYT",
+      "CDNA",
+      "TWST",
+      "TXG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "NTRS": {
+    "peers": [
+      "STT",
+      "MTB",
+      "ZION",
+      "RJF",
+      "PFG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "NUE": {
+    "peers": [
+      "STLD",
+      "CLF",
+      "FCX",
+      "PPG",
+      "EMR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "NVDA": {
+    "peers": [
+      "TSLA",
+      "AMZN",
+      "AAPL",
+      "AMD",
+      "META"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
   },
   "NVMI": {
     "peers": [
@@ -94,6 +4405,1406 @@
     "source": "yahoo",
     "updated": "2026-05-13"
   },
+  "NVO": {
+    "peers": [
+      "LLY",
+      "UNH",
+      "ASML",
+      "SMCI",
+      "HIMS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "NVS": {
+    "peers": [
+      "SNY",
+      "GSK",
+      "AZN",
+      "RHHBY",
+      "BMY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "NWG": {
+    "peers": [
+      "MUFG",
+      "SMFG",
+      "MFG",
+      "BSBR",
+      "BSAC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "NXPI": {
+    "peers": [
+      "ON",
+      "SWKS",
+      "ADI",
+      "MCHP",
+      "QRVO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "O": {
+    "peers": [
+      "STAG",
+      "ABBV",
+      "SPG",
+      "MAIN",
+      "WPC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "ODFL": {
+    "peers": [
+      "JBHT",
+      "SAIA",
+      "CPRT",
+      "IDXX",
+      "VRSK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "OGE": {
+    "peers": [
+      "PNW",
+      "LNT",
+      "IDA",
+      "POR",
+      "BKH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "OHI": {
+    "peers": [
+      "MPT",
+      "WPC",
+      "VTR",
+      "LTC",
+      "STAG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "OKE": {
+    "peers": [
+      "WMB",
+      "KMI",
+      "EPD",
+      "ENB",
+      "MPLX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "OKTA": {
+    "peers": [
+      "ZS",
+      "TWLO",
+      "DOCU",
+      "TTD",
+      "DDOG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-28"
+  },
+  "OMC": {
+    "peers": [
+      "NTRS",
+      "RHI",
+      "NWSA",
+      "PNW",
+      "PFG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "ON": {
+    "peers": [
+      "NXPI",
+      "MCHP",
+      "LRCX",
+      "ADI",
+      "MRVL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ONB": {
+    "peers": [
+      "FULT",
+      "FFBC",
+      "CVBF",
+      "FRME",
+      "WTFC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "ORCL": {
+    "peers": [
+      "CSCO",
+      "IBM",
+      "INTC",
+      "QCOM",
+      "DELL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-10"
+  },
+  "ORI": {
+    "peers": [
+      "MCY",
+      "CINF",
+      "FAF",
+      "RLI",
+      "FNF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "ORLY": {
+    "peers": [
+      "AZO",
+      "AAP",
+      "ROST",
+      "TSCO",
+      "FAST"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "OTIS": {
+    "peers": [
+      "CARR",
+      "TT",
+      "RTX",
+      "FTV",
+      "CTVA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "OVV": {
+    "peers": [
+      "MTDR",
+      "AR",
+      "MGY",
+      "CVE",
+      "VET"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "OXY": {
+    "peers": [
+      "CVX",
+      "DVN",
+      "COP",
+      "XOM",
+      "SLB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "P": {
+    "peers": [
+      "NTNX",
+      "ANET",
+      "Z",
+      "YELP",
+      "ZS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "PAAS": {
+    "peers": [
+      "HL",
+      "AG",
+      "CDE",
+      "AEM",
+      "WPM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "PAG": {
+    "peers": [
+      "GPI",
+      "SAH",
+      "LAD",
+      "AN",
+      "ABG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "PANW": {
+    "peers": [
+      "CRWD",
+      "FTNT",
+      "ZS",
+      "NOW",
+      "AVGO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-02"
+  },
+  "PAYX": {
+    "peers": [
+      "ADP",
+      "FAST",
+      "CTAS",
+      "PCAR",
+      "SYY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-23"
+  },
+  "PBR": {
+    "peers": [
+      "VALE",
+      "RIG",
+      "RIO",
+      "BBD",
+      "DVN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "PBR.A": {
+    "peers": [
+      "EC",
+      "YPF",
+      "EQNR",
+      "SHEL",
+      "BP",
+      "TTE",
+      "XOM",
+      "CVX"
+    ],
+    "source": "llm",
+    "updated": "2026-08-06"
+  },
+  "PCAR": {
+    "peers": [
+      "CTAS",
+      "FAST",
+      "EXPD",
+      "PAYX",
+      "CHRW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "PCG": {
+    "peers": [
+      "EIX",
+      "PEG",
+      "SRE",
+      "FE",
+      "AEP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "PEG": {
+    "peers": [
+      "PNW",
+      "ETR",
+      "PPL",
+      "FE",
+      "NI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "PFE": {
+    "peers": [
+      "JNJ",
+      "MRK",
+      "XOM",
+      "VZ",
+      "JPM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "PFG": {
+    "peers": [
+      "LNC",
+      "HIG",
+      "UNM",
+      "NTRS",
+      "AIZ"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "PFGC": {
+    "peers": [
+      "USFD",
+      "CHEF",
+      "ARMK",
+      "POST",
+      "JJSF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-11"
+  },
+  "PG": {
+    "peers": [
+      "JNJ",
+      "KO",
+      "MRK",
+      "HD",
+      "VZ"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "PGR": {
+    "peers": [
+      "ALL",
+      "CB",
+      "MRSH",
+      "HIG",
+      "TRV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "PH": {
+    "peers": [
+      "DOV",
+      "ITW",
+      "GWW",
+      "ROK",
+      "ROP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "PHG": {
+    "peers": [
+      "STM",
+      "UL",
+      "ING",
+      "SNY",
+      "SI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "PHM": {
+    "peers": [
+      "LEN",
+      "DHI",
+      "KBH",
+      "TOL",
+      "BZH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "PKG": {
+    "peers": [
+      "AVY",
+      "IEX",
+      "RJF",
+      "ALLE",
+      "ROL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "PL": {
+    "peers": [
+      "RDW",
+      "LUNR",
+      "ASTS",
+      "RKLB",
+      "BKSY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-04"
+  },
+  "PLD": {
+    "peers": [
+      "PSA",
+      "AVB",
+      "DLR",
+      "EQR",
+      "SPG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-15"
+  },
+  "PLTR": {
+    "peers": [
+      "AMD",
+      "AVGO",
+      "TSM",
+      "MU",
+      "SOFI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "PM": {
+    "peers": [
+      "MO",
+      "MDLZ",
+      "KHC",
+      "PEP",
+      "KMB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "PNC": {
+    "peers": [
+      "USB",
+      "FITB",
+      "BNY",
+      "KEY",
+      "MTB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-14"
+  },
+  "PNFP": {
+    "peers": [
+      "WTFC",
+      "SSB",
+      "TCBI",
+      "HOMB",
+      "RNST"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "PNR": {
+    "peers": [
+      "ROP",
+      "DOV",
+      "AOS",
+      "GWW",
+      "XYL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "PNW": {
+    "peers": [
+      "NI",
+      "LNT",
+      "DTE",
+      "CMS",
+      "PEG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "PPG": {
+    "peers": [
+      "SHW",
+      "APD",
+      "SWK",
+      "DOV",
+      "GWW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "PPL": {
+    "peers": [
+      "PEG",
+      "FE",
+      "EXC",
+      "SO",
+      "ETR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "PS": {
+    "peers": [
+      "PSUS",
+      "DOMO",
+      "QTWO",
+      "YEXT",
+      "SAIL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "PSA": {
+    "peers": [
+      "EXR",
+      "AVB",
+      "PLD",
+      "EQR",
+      "BXP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "PSX": {
+    "peers": [
+      "COP",
+      "MPC",
+      "VLO",
+      "EOG",
+      "KMI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "PWR": {
+    "peers": [
+      "ETN",
+      "MTZ",
+      "EME",
+      "FIX",
+      "VRT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "PYPL": {
+    "peers": [
+      "XYZ",
+      "SHOP",
+      "CRM",
+      "V",
+      "BABA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "Q": {
+    "peers": [
+      "LU",
+      "CIEN",
+      "COMS",
+      "VOD",
+      "GLW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "QCOM": {
+    "peers": [
+      "MU",
+      "AVGO",
+      "CSCO",
+      "AMD",
+      "ORCL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "QNT": {
+    "peers": [
+      "INFQ",
+      "XNDU",
+      "CBRS",
+      "HQ",
+      "XE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-11"
+  },
+  "R": {
+    "peers": [
+      "JBHT",
+      "RHI",
+      "LSTR",
+      "CHRW",
+      "EXPD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "RACE": {
+    "peers": [
+      "STLA",
+      "BKNG",
+      "DPZ",
+      "SPGI",
+      "EL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "RBLX": {
+    "peers": [
+      "U",
+      "COIN",
+      "ABNB",
+      "SNOW",
+      "AFRM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "RBRK": {
+    "peers": [
+      "ALAB",
+      "CRDO",
+      "ZETA",
+      "IOT",
+      "GTLB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-04"
+  },
+  "RCI": {
+    "peers": [
+      "TU",
+      "BCE",
+      "SLF",
+      "TRI",
+      "CM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "RCL": {
+    "peers": [
+      "NCLH",
+      "CCL",
+      "UAL",
+      "DAL",
+      "AAL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "RDDT": {
+    "peers": [
+      "CRWV",
+      "APP",
+      "ARM",
+      "HOOD",
+      "NBIS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "REGN": {
+    "peers": [
+      "VRTX",
+      "BIIB",
+      "GILD",
+      "ILMN",
+      "BMRN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "RJF": {
+    "peers": [
+      "NTRS",
+      "WRB",
+      "AIZ",
+      "REG",
+      "AJG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "RKT": {
+    "peers": [
+      "DKNG",
+      "WKHS",
+      "FSLY",
+      "FUBO",
+      "PTON"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "RMBS": {
+    "peers": [
+      "CIEN",
+      "LSCC",
+      "KLAC",
+      "ADI",
+      "NTAP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "RMD": {
+    "peers": [
+      "COO",
+      "STE",
+      "MTD",
+      "IDXX",
+      "TFX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "RNR": {
+    "peers": [
+      "AXS",
+      "ACGL",
+      "RLI",
+      "RGA",
+      "THG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "ROK": {
+    "peers": [
+      "PH",
+      "ROP",
+      "ETN",
+      "ITW",
+      "DOV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ROL": {
+    "peers": [
+      "IEX",
+      "JKHY",
+      "ALLE",
+      "MTD",
+      "VRSK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "ROP": {
+    "peers": [
+      "PNR",
+      "AOS",
+      "GWW",
+      "CTAS",
+      "DOV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "RPM": {
+    "peers": [
+      "SON",
+      "FUL",
+      "PPG",
+      "NDSN",
+      "CSL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "RS": {
+    "peers": [
+      "STLD",
+      "CMC",
+      "WOR",
+      "CRS",
+      "PKX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "RSG": {
+    "peers": [
+      "WCN",
+      "ROP",
+      "RHI",
+      "PH",
+      "XYL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "RTX": {
+    "peers": [
+      "LMT",
+      "NOC",
+      "GD",
+      "LHX",
+      "CARR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "RVMD": {
+    "peers": [
+      "KYMR",
+      "RLAY",
+      "PCVX",
+      "BBIO",
+      "LEGN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "RVTY": {
+    "peers": [
+      "EG",
+      "BALL",
+      "VLTO",
+      "CPAY",
+      "MTD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "RY": {
+    "peers": [
+      "TD",
+      "BMO",
+      "BNS",
+      "CM",
+      "BCE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "SAIL": {
+    "peers": [
+      "TENB",
+      "VRNS",
+      "RPD",
+      "QLYS",
+      "FIVN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-09"
+  },
+  "SANM": {
+    "peers": [
+      "FLEX",
+      "JBL",
+      "CLS",
+      "PLXS",
+      "BHE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "SAP": {
+    "peers": [
+      "INTU",
+      "WDAY",
+      "ORCL",
+      "ACN",
+      "CRM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "SBAC": {
+    "peers": [
+      "CCI",
+      "AMT",
+      "EQIX",
+      "VRSK",
+      "EXR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "SBUX": {
+    "peers": [
+      "NKE",
+      "COST",
+      "DIS",
+      "V",
+      "WMT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "SCHW": {
+    "peers": [
+      "MS",
+      "BLK",
+      "COF",
+      "GS",
+      "USB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "SEIC": {
+    "peers": [
+      "CBSH",
+      "RLI",
+      "WABC",
+      "RNR",
+      "JKHY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "SF": {
+    "peers": [
+      "RJF",
+      "EVR",
+      "HLI",
+      "PIPR",
+      "SIGI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "SHEL": {
+    "peers": [
+      "TTE",
+      "EQNR",
+      "MPC",
+      "FANG",
+      "BP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "SHG": {
+    "peers": [
+      "KB",
+      "WF",
+      "BCH",
+      "IX",
+      "BSAC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "SHOP": {
+    "peers": [
+      "XYZ",
+      "ZM",
+      "PYPL",
+      "CRWD",
+      "ROKU"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "SHW": {
+    "peers": [
+      "PPG",
+      "ECL",
+      "SWK",
+      "GWW",
+      "APD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "SJM": {
+    "peers": [
+      "MKC",
+      "HRL",
+      "CPB",
+      "CAG",
+      "GIS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-09"
+  },
+  "SLB": {
+    "peers": [
+      "HAL",
+      "COP",
+      "RIG",
+      "OXY",
+      "DVN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "SLF": {
+    "peers": [
+      "MFC",
+      "CM",
+      "BNS",
+      "BMO",
+      "RY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "SMCI": {
+    "peers": [
+      "ARM",
+      "AVGO",
+      "SOUN",
+      "CRWV",
+      "PLTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-11"
+  },
+  "SMFG": {
+    "peers": [
+      "MUFG",
+      "MFG",
+      "NMR",
+      "IX",
+      "BSBR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "SMMT": {
+    "peers": [
+      "VKTX",
+      "IOVA",
+      "IBRX",
+      "RVMD",
+      "SRRK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "SMTC": {
+    "peers": [
+      "SLAB",
+      "LSCC",
+      "POWI",
+      "MTSI",
+      "MXL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-25"
+  },
+  "SNA": {
+    "peers": [
+      "SWK",
+      "RHI",
+      "AOS",
+      "ROP",
+      "GWW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "SNDK": {
+    "peers": [
+      "WDC",
+      "MU",
+      "MRVL",
+      "STX",
+      "SKHY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "SNOW": {
+    "peers": [
+      "CRWD",
+      "ABNB",
+      "CRM",
+      "SHOP",
+      "DDOG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-02"
+  },
+  "SNPS": {
+    "peers": [
+      "CDNS",
+      "KLAC",
+      "LRCX",
+      "ANET",
+      "INTU"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "SNX": {
+    "peers": [
+      "ARW",
+      "CNXC",
+      "CDW",
+      "AVT",
+      "SAIC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
+  "SNY": {
+    "peers": [
+      "GSK",
+      "NVS",
+      "AZN",
+      "RHHBY",
+      "REGN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "SO": {
+    "peers": [
+      "DUK",
+      "D",
+      "AEP",
+      "ED",
+      "EXC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "SOFI": {
+    "peers": [
+      "HOOD",
+      "PLTR",
+      "COIN",
+      "UPST",
+      "SMCI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "SPCX": {
+    "peers": [
+      "PLTR",
+      "MU",
+      "AVGO",
+      "CRWV",
+      "RKLB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "SPGI": {
+    "peers": [
+      "MCO",
+      "MSCI",
+      "ROP",
+      "LIN",
+      "CTAS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "SPOT": {
+    "peers": [
+      "SHOP",
+      "ROKU",
+      "ZM",
+      "UBER",
+      "PINS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "SQM": {
+    "peers": [
+      "ALB",
+      "FMC",
+      "LAC",
+      "MOS",
+      "VALE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "SRE": {
+    "peers": [
+      "EIX",
+      "PEG",
+      "XEL",
+      "ETR",
+      "WEC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "SSNC": {
+    "peers": [
+      "GWRE",
+      "TYL",
+      "PCTY",
+      "PTC",
+      "MANH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "STLD": {
+    "peers": [
+      "NUE",
+      "RS",
+      "CMC",
+      "MT",
+      "CLF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "STM": {
+    "peers": [
+      "ON",
+      "ADI",
+      "MCHP",
+      "NXPI",
+      "TER"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "STRL": {
+    "peers": [
+      "FIX",
+      "POWL",
+      "EME",
+      "AGX",
+      "MOD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "STX": {
+    "peers": [
+      "WDC",
+      "SNDK",
+      "LRCX",
+      "MRVL",
+      "MU"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "SU": {
+    "peers": [
+      "CNQ",
+      "CVE",
+      "ENB",
+      "VLO",
+      "DVN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "SUI": {
+    "peers": [
+      "ELS",
+      "CPT",
+      "MAA",
+      "UDR",
+      "UMH"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "SUN": {
+    "peers": [
+      "VLO",
+      "MPLX",
+      "MUR",
+      "WMB",
+      "PAA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "SUZ": {
+    "peers": [
+      "CTA-PB",
+      "BSAC",
+      "AXIAY",
+      "XP",
+      "UGP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "SW": {
+    "peers": [
+      "BALL",
+      "CPAY",
+      "RVTY",
+      "EG",
+      "VLTO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "SWK": {
+    "peers": [
+      "DOV",
+      "PPG",
+      "GPC",
+      "GWW",
+      "VFC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "SYF": {
+    "peers": [
+      "CFG",
+      "MTB",
+      "ALLY",
+      "BNY",
+      "COF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "SYK": {
+    "peers": [
+      "MDT",
+      "BDX",
+      "TMO",
+      "BSX",
+      "DHR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-30"
+  },
+  "SYM": {
+    "peers": [
+      "SERV",
+      "PATH",
+      "APLD",
+      "SOUN",
+      "ALAB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "SYY": {
+    "peers": [
+      "CL",
+      "KMB",
+      "ITW",
+      "MKC",
+      "EMR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "T": {
+    "peers": [
+      "VZ",
+      "GE",
+      "MCD",
+      "KO",
+      "F"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
   "TAK": {
     "peers": [
       "VIR",
@@ -104,6 +5815,325 @@
     ],
     "source": "yahoo",
     "updated": "2026-05-12"
+  },
+  "TCOM": {
+    "peers": [
+      "BEKE",
+      "TME",
+      "BILI",
+      "PDD",
+      "GDS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-24"
+  },
+  "TD": {
+    "peers": [
+      "RY",
+      "BMO",
+      "BNS",
+      "CM",
+      "RY.TO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "TDG": {
+    "peers": [
+      "HEI",
+      "ROP",
+      "HII",
+      "LHX",
+      "VRSK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "TDY": {
+    "peers": [
+      "TDG",
+      "TYL",
+      "FTV",
+      "IEX",
+      "TFX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "TEAM": {
+    "peers": [
+      "OKTA",
+      "MDB",
+      "HUBS",
+      "ZS",
+      "DDOG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "TECK": {
+    "peers": [
+      "SCCO",
+      "HBM",
+      "WPM",
+      "NTR",
+      "TECK-B.TO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "TEL": {
+    "peers": [
+      "PNR",
+      "APH",
+      "FTV",
+      "ROP",
+      "AME"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "TER": {
+    "peers": [
+      "KLAC",
+      "LRCX",
+      "ADI",
+      "CDNS",
+      "SNPS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "TEVA": {
+    "peers": [
+      "GILD",
+      "BIIB",
+      "BMY",
+      "NVS",
+      "AMGN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "TFII": {
+    "peers": [
+      "SAIA",
+      "ARCB",
+      "SNDR",
+      "KNX",
+      "WFG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "TGT": {
+    "peers": [
+      "WMT",
+      "COST",
+      "LOW",
+      "HD",
+      "SBUX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "THC": {
+    "peers": [
+      "HCA",
+      "UHS",
+      "CYH",
+      "HUM",
+      "CI"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "TIMB": {
+    "peers": [
+      "KT",
+      "VIV",
+      "TIGO",
+      "SUZ",
+      "CSAN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "TJX": {
+    "peers": [
+      "ROST",
+      "DLTR",
+      "DG",
+      "KSS",
+      "ULTA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "TKO": {
+    "peers": [
+      "SPHR",
+      "FLUT",
+      "FWONK",
+      "MSGS",
+      "PSKY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "TLN": {
+    "peers": [
+      "VST",
+      "CEG",
+      "LEU",
+      "NNE",
+      "BWXT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "TM": {
+    "peers": [
+      "HMC",
+      "GM",
+      "F",
+      "NSANY",
+      "FDX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "TMO": {
+    "peers": [
+      "DHR",
+      "SYK",
+      "ZTS",
+      "BDX",
+      "ISRG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "TMUS": {
+    "peers": [
+      "CMCSA",
+      "EA",
+      "CHTR",
+      "S",
+      "AMT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "TOL": {
+    "peers": [
+      "PHM",
+      "LEN",
+      "KBH",
+      "DHI",
+      "HOV"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
+  },
+  "TPG": {
+    "peers": [
+      "ARES",
+      "OWL",
+      "STEP",
+      "HLNE",
+      "CRBG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "TPL": {
+    "peers": [
+      "FICO",
+      "VNOM",
+      "EQT",
+      "FIX",
+      "TRGP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "TPR": {
+    "peers": [
+      "CPRI",
+      "PVH",
+      "RL",
+      "LKQ",
+      "ROST"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-12"
+  },
+  "TRGP": {
+    "peers": [
+      "WES",
+      "PAGP",
+      "MPLX",
+      "OKE",
+      "PAA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "TRMB": {
+    "peers": [
+      "TDY",
+      "PTC",
+      "ZBRA",
+      "TER",
+      "TYL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-11"
+  },
+  "TRP": {
+    "peers": [
+      "ENB",
+      "CNQ",
+      "BCE",
+      "PBA",
+      "SU"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "TRU": {
+    "peers": [
+      "EFX",
+      "VRSK",
+      "SSNC",
+      "TNET",
+      "TYL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "TS": {
+    "peers": [
+      "TX",
+      "YPF",
+      "GGAL",
+      "BMA",
+      "PAM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "TSCO": {
+    "peers": [
+      "ORLY",
+      "ROST",
+      "ULTA",
+      "ODFL",
+      "DG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
   },
   "TSEM": {
     "peers": [
@@ -116,6 +6146,284 @@
     "source": "yahoo",
     "updated": "2026-05-12"
   },
+  "TSLA": {
+    "peers": [
+      "AAPL",
+      "AMZN",
+      "META",
+      "GOOG",
+      "NVDA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "TSM": {
+    "peers": [
+      "AVGO",
+      "MU",
+      "ASML",
+      "AMD",
+      "PLTR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-15"
+  },
+  "TT": {
+    "peers": [
+      "CARR",
+      "ALLE",
+      "J",
+      "IR",
+      "AME"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "TTE": {
+    "peers": [
+      "SHEL",
+      "EQNR",
+      "E",
+      "FANG",
+      "MPLX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "TTWO": {
+    "peers": [
+      "EA",
+      "TWLO",
+      "ADSK",
+      "OKTA",
+      "TTD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "TWLO": {
+    "peers": [
+      "OKTA",
+      "DOCU",
+      "TTD",
+      "ROKU",
+      "DDOG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "TXN": {
+    "peers": [
+      "AMAT",
+      "ADI",
+      "QCOM",
+      "LRCX",
+      "KLAC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "TXT": {
+    "peers": [
+      "HII",
+      "TDG",
+      "GD",
+      "LHX",
+      "NOC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "UAL": {
+    "peers": [
+      "DAL",
+      "AAL",
+      "LUV",
+      "ALK",
+      "JBLU",
+      "SAVE"
+    ],
+    "source": "llm",
+    "updated": "2026-07-15"
+  },
+  "UBER": {
+    "peers": [
+      "LYFT",
+      "ABNB",
+      "ZM",
+      "SHOP",
+      "PYPL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-04"
+  },
+  "UDR": {
+    "peers": [
+      "MAA",
+      "ESS",
+      "CPT",
+      "EQR",
+      "REG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "UHAL.B": {
+    "peers": [
+      "PSA",
+      "EXR",
+      "CUBE",
+      "NSA",
+      "SELF",
+      "R",
+      "CAR"
+    ],
+    "source": "llm",
+    "updated": "2026-08-05"
+  },
+  "ULS": {
+    "peers": [
+      "LOAR",
+      "WAY",
+      "VIK",
+      "PACS",
+      "ATMU"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ULTA": {
+    "peers": [
+      "LULU",
+      "EL",
+      "DLTR",
+      "DG",
+      "TJX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-06-02"
+  },
+  "UMBF": {
+    "peers": [
+      "WABC",
+      "UBSI",
+      "CBSH",
+      "TRMK",
+      "WTFC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "UMC": {
+    "peers": [
+      "ASX",
+      "STM",
+      "HIMX",
+      "ON",
+      "LSCC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "UNH": {
+    "peers": [
+      "LLY",
+      "V",
+      "AVGO",
+      "CRM",
+      "COST"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-15"
+  },
+  "UNM": {
+    "peers": [
+      "LNC",
+      "PFG",
+      "AIZ",
+      "HIG",
+      "ZION"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "UNP": {
+    "peers": [
+      "NSC",
+      "CSX",
+      "CNI",
+      "HON",
+      "DE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "UPS": {
+    "peers": [
+      "FDX",
+      "TGT",
+      "MMM",
+      "PEP",
+      "CAT"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "URI": {
+    "peers": [
+      "MLM",
+      "VMC",
+      "PWR",
+      "TDG",
+      "ULTA"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "USB": {
+    "peers": [
+      "BNY",
+      "PNC",
+      "WFC",
+      "MS",
+      "KEY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-15"
+  },
+  "V": {
+    "peers": [
+      "MA",
+      "PYPL",
+      "AXP",
+      "COST",
+      "JPM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "VEEV": {
+    "peers": [
+      "TEAM",
+      "OKTA",
+      "WDAY",
+      "PAYC",
+      "TWLO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-26"
+  },
+  "VICR": {
+    "peers": [
+      "TTMI",
+      "POWI",
+      "MXL",
+      "FN",
+      "POWL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
   "VIK": {
     "peers": [
       "AS",
@@ -126,5 +6434,513 @@
     ],
     "source": "yahoo",
     "updated": "2026-05-13"
+  },
+  "VLO": {
+    "peers": [
+      "MPC",
+      "COP",
+      "PSX",
+      "SLB",
+      "DVN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "VLTO": {
+    "peers": [
+      "RVTY",
+      "FTV",
+      "EG",
+      "BALL",
+      "CPAY"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "VMC": {
+    "peers": [
+      "MLM",
+      "URI",
+      "MAS",
+      "EXP",
+      "SHW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "VMI": {
+    "peers": [
+      "LNN",
+      "WTS",
+      "IEX",
+      "BMI",
+      "FELE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "VNOM": {
+    "peers": [
+      "BSM",
+      "FANG",
+      "MTDR",
+      "KRP",
+      "PAGP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "VRSK": {
+    "peers": [
+      "CDW",
+      "ALLE",
+      "AME",
+      "ROP",
+      "MTD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "VRSN": {
+    "peers": [
+      "CHKP",
+      "NTAP",
+      "AKAM",
+      "VRTS",
+      "INTU"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "VRT": {
+    "peers": [
+      "VST",
+      "NBIS",
+      "GEV",
+      "CRWV",
+      "CEG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "VRTX": {
+    "peers": [
+      "REGN",
+      "BIIB",
+      "INCY",
+      "ILMN",
+      "BMRN"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "VSAT": {
+    "peers": [
+      "SATS",
+      "IRDM",
+      "PL",
+      "SMTC",
+      "LUNR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-05-28"
+  },
+  "VST": {
+    "peers": [
+      "CEG",
+      "VRT",
+      "OKLO",
+      "GEV",
+      "SMR"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "VTR": {
+    "peers": [
+      "WELL",
+      "PSA",
+      "AVB",
+      "EQR",
+      "KIM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "VZ": {
+    "peers": [
+      "T",
+      "PG",
+      "KO",
+      "JPM",
+      "JNJ"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-23"
+  },
+  "W": {
+    "peers": [
+      "ETSY",
+      "DOCU",
+      "CVNA",
+      "RH",
+      "PTON"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "WAB": {
+    "peers": [
+      "GEHC",
+      "CTVA",
+      "AME",
+      "ROL",
+      "IEX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "WAT": {
+    "peers": [
+      "MTD",
+      "COO",
+      "LH",
+      "XRAY",
+      "UHS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "WBD": {
+    "peers": [
+      "VTRS",
+      "GEHC",
+      "LUMN",
+      "CMCSA",
+      "KHC"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "WBS": {
+    "peers": [
+      "WTFC",
+      "PB",
+      "VLY",
+      "FULT",
+      "UMBF"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-21"
+  },
+  "WCN": {
+    "peers": [
+      "RSG",
+      "CWST",
+      "CLH",
+      "GFL",
+      "ROP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "WDAY": {
+    "peers": [
+      "NOW",
+      "TEAM",
+      "OKTA",
+      "TWLO",
+      "ZS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-27"
+  },
+  "WDC": {
+    "peers": [
+      "STX",
+      "SNDK",
+      "MU",
+      "LRCX",
+      "MRVL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "WEC": {
+    "peers": [
+      "LNT",
+      "XEL",
+      "CMS",
+      "PNW",
+      "ES"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "WELL": {
+    "peers": [
+      "VTR",
+      "PSA",
+      "PLD",
+      "DLR",
+      "AVB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "WFC": {
+    "peers": [
+      "BAC",
+      "C",
+      "JPM",
+      "GS",
+      "MS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-13"
+  },
+  "WLTH": {
+    "peers": [
+      "NAVN",
+      "PTRN",
+      "CHYM",
+      "MIAX",
+      "STUB"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-09"
+  },
+  "WM": {
+    "peers": [
+      "MMM",
+      "PEP",
+      "UPS",
+      "CAT",
+      "RSG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "WMB": {
+    "peers": [
+      "OKE",
+      "KMI",
+      "DVN",
+      "EOG",
+      "EPD"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "WMG": {
+    "peers": [
+      "GTM",
+      "VRM",
+      "LYV",
+      "MSGS",
+      "FWONK"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "WMT": {
+    "peers": [
+      "HD",
+      "JNJ",
+      "COST",
+      "TGT",
+      "KO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-19"
+  },
+  "WPC": {
+    "peers": [
+      "NNN",
+      "STAG",
+      "OHI",
+      "MPT",
+      "O"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "WPM": {
+    "peers": [
+      "FNV",
+      "PAAS",
+      "AEM",
+      "RGLD",
+      "AG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-06"
+  },
+  "WRB": {
+    "peers": [
+      "AIZ",
+      "GL",
+      "RJF",
+      "AXS",
+      "ACGL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "WSO": {
+    "peers": [
+      "LII",
+      "MSM",
+      "ROL",
+      "WCC",
+      "GGG"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-28"
+  },
+  "WSO.B": {
+    "peers": [
+      "FERG",
+      "POOL",
+      "SITE",
+      "CNM",
+      "GWW",
+      "AIT",
+      "LII"
+    ],
+    "source": "llm",
+    "updated": "2026-07-28"
+  },
+  "WST": {
+    "peers": [
+      "STE",
+      "MTD",
+      "TFX",
+      "ROP",
+      "COO"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-22"
+  },
+  "WTFC": {
+    "peers": [
+      "UMBF",
+      "WSFS",
+      "TCBI",
+      "WABC",
+      "PNFP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "WTS": {
+    "peers": [
+      "TTEK",
+      "FELE",
+      "BMI",
+      "MWA",
+      "IEX"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "XEL": {
+    "peers": [
+      "WEC",
+      "PEG",
+      "SRE",
+      "CMS",
+      "AEP"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-29"
+  },
+  "XOM": {
+    "peers": [
+      "CVX",
+      "JNJ",
+      "WMT",
+      "PG",
+      "PFE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "XYL": {
+    "peers": [
+      "PNR",
+      "IEX",
+      "AME",
+      "ROP",
+      "ALLE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-27"
+  },
+  "XYZ": {
+    "peers": [
+      "PYPL",
+      "SHOP",
+      "ROKU",
+      "ZM",
+      "CRM"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-05"
+  },
+  "ZBRA": {
+    "peers": [
+      "PAYC",
+      "IDXX",
+      "ODFL",
+      "ADSK",
+      "HUBS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-03"
+  },
+  "ZION": {
+    "peers": [
+      "NTRS",
+      "MTB",
+      "FITB",
+      "KEY",
+      "WAL"
+    ],
+    "source": "yahoo",
+    "updated": "2026-07-20"
+  },
+  "ZM": {
+    "peers": [
+      "DOCU",
+      "ROKU",
+      "SHOP",
+      "XYZ",
+      "PINS"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-25"
+  },
+  "ZS": {
+    "peers": [
+      "OKTA",
+      "CRWD",
+      "DDOG",
+      "NET",
+      "PANW"
+    ],
+    "source": "yahoo",
+    "updated": "2026-09-03"
+  },
+  "ZTO": {
+    "peers": [
+      "HTHT",
+      "GDS",
+      "VIPS",
+      "TCOM",
+      "BEKE"
+    ],
+    "source": "yahoo",
+    "updated": "2026-08-18"
   }
 }

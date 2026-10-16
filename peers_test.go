@@ -329,36 +329,45 @@ func TestWriteStockCard_PeerNoEPSEstimate(t *testing.T) {
 
 // ── fetchPeers mock-based tests ───────────────────────────────────────────────
 
-// sevenDayPrices is a Nasdaq price history (newest-first) covering
-// 2026-04-09 through 2026-04-23. Sufficient for both AMC and BMO reaction tests:
+// sevenDayPrices is a price history covering 2026-04-09 through 2026-04-23.
+// Sufficient for both AMC and BMO reaction tests:
 //
 //	04/15 (announce day AMC):  priorClose via this day's close = $102
 //	04/16 (AMC reaction day):  open=$107, close=$108
 //	04/14 (day-before for BMO):close=$101 → priorClose for BMO
 //	04/10 (alternate announce): close=$99 → used in sort test (PEER2)
+//
+// Rows are "MM/DD/YYYY, open, close" — the JSON encoder normalises order.
 var sevenDayPrices = [][3]string{
-	{"04/23/2026", "$109.00", "$110.00"},
-	{"04/16/2026", "$107.00", "$108.00"},
-	{"04/15/2026", "$101.00", "$102.00"},
-	{"04/14/2026", "$100.00", "$101.00"},
-	{"04/13/2026", "$99.00", "$100.00"},
-	{"04/10/2026", "$98.00", "$99.00"},
-	{"04/09/2026", "$97.00", "$98.00"},
+	{"04/23/2026", "109.00", "110.00"},
+	{"04/16/2026", "107.00", "108.00"},
+	{"04/15/2026", "101.00", "102.00"},
+	{"04/14/2026", "100.00", "101.00"},
+	{"04/13/2026", "99.00", "100.00"},
+	{"04/10/2026", "98.00", "99.00"},
+	{"04/09/2026", "97.00", "98.00"},
 }
 
-// peerPriceHistJSON builds a Nasdaq historical-prices API response.
-// rows are newest-first with dates in "MM/DD/YYYY" format.
+// peerPriceHistJSON builds a Yahoo Finance v8 chart API response — the shape
+// used by fetchYahooChartHistory (called by NasdaqPriceProvider.FetchPriceHistory).
+// Rows may be in any order; Yahoo emits timestamp/open/close as parallel arrays.
 func peerPriceHistJSON(rows [][3]string) string {
-	var sb strings.Builder
-	sb.WriteString(`{"data":{"tradesTable":{"rows":[`)
-	for i, r := range rows {
-		if i > 0 {
-			sb.WriteString(",")
+	var timestamps, opens, closes []string
+	for _, r := range rows {
+		d, err := time.Parse("01/02/2006", r[0])
+		if err != nil {
+			panic(fmt.Sprintf("peerPriceHistJSON: bad date %q: %v", r[0], err))
 		}
-		fmt.Fprintf(&sb, `{"date":%q,"open":%q,"close":%q}`, r[0], r[1], r[2])
+		timestamps = append(timestamps, fmt.Sprintf("%d", d.Unix()))
+		opens = append(opens, r[1])
+		closes = append(closes, r[2])
 	}
-	sb.WriteString(`]}}}`)
-	return sb.String()
+	return fmt.Sprintf(
+		`{"chart":{"result":[{"timestamp":[%s],"indicators":{"quote":[{"open":[%s],"close":[%s]}]}}],"error":null}}`,
+		strings.Join(timestamps, ","),
+		strings.Join(opens, ","),
+		strings.Join(closes, ","),
+	)
 }
 
 // peerCalResp builds a Nasdaq calendar response containing one peer row.
@@ -440,8 +449,8 @@ func TestFetchPeers_AMC(t *testing.T) {
 	calRoute(tr, calDate, peerCalResp(peerSym, "Peer One Inc.", "$50,000,000,000", "time-after-hours", "Mar/2026"))
 	tr.on("calendar/earnings", 200, emptyCalResp(), "application/json")
 
-	// Nasdaq: price history (both segment calls return the same rows; dedup handles it).
-	tr.on("/"+peerSym+"/historical", 200, peerPriceHistJSON(sevenDayPrices), "application/json")
+	// Yahoo: price history (single ~2y chart call).
+	tr.on("/v8/finance/chart/"+peerSym, 200, peerPriceHistJSON(sevenDayPrices), "application/json")
 
 	// SEC: submissions for PEER1 — SIC lookup + 8-K date (April 15).
 	// windowStart = periodEnd+14 = "2026-04-14", windowEnd = xbrlFiled = "2026-05-10"
@@ -519,7 +528,7 @@ func TestFetchPeers_BMO(t *testing.T) {
 	tr := newMockTransport()
 	calRoute(tr, calDate, peerCalResp(peerSym, "BMO Peer Inc.", "$50,000,000,000", "time-pre-market", "Mar/2026"))
 	tr.on("calendar/earnings", 200, emptyCalResp(), "application/json")
-	tr.on("/"+peerSym+"/historical", 200, peerPriceHistJSON(sevenDayPrices), "application/json")
+	tr.on("/v8/finance/chart/"+peerSym, 200, peerPriceHistJSON(sevenDayPrices), "application/json")
 	tr.on("/submissions/CIK0000222222.json", 200, peerSubJSON("BMO Peer Inc.", "3571", "ELECTRONIC COMPUTERS", calDate), "application/json")
 	tr.on("/us-gaap/EarningsPerShareDiluted.json", 200,
 		conceptJSON("USD/shares", conceptEntryJSON(periodStart, periodEnd, "10-Q", xbrlFiled, 2.00)),
@@ -660,8 +669,8 @@ func TestFetchPeers_SortsByMarketCap(t *testing.T) {
 	tr.on("calendar/earnings", 200, emptyCalResp(), "application/json")
 
 	// Nasdaq price history — both peers use the same shared series.
-	tr.on("/PEER1/historical", 200, peerPriceHistJSON(sevenDayPrices), "application/json")
-	tr.on("/PEER2/historical", 200, peerPriceHistJSON(sevenDayPrices), "application/json")
+	tr.on("/v8/finance/chart/PEER1", 200, peerPriceHistJSON(sevenDayPrices), "application/json")
+	tr.on("/v8/finance/chart/PEER2", 200, peerPriceHistJSON(sevenDayPrices), "application/json")
 
 	// SEC: separate submissions per CIK; concepts are matched by path substring
 	// (same response served to both, which is fine for this test).

@@ -438,7 +438,13 @@ func (c *SECClient) fetchConcept(cik int, taxonomy, concept string) (map[string]
 
 	acceptedForms, annualForms := taxonomyForms(taxonomy)
 
-	// Use the first unit key (USD for revenue, USD/shares for EPS).
+	// Iterate every unit bucket. Most concepts only publish under one (USD for
+	// revenue, USD/shares for EPS), but some filers — COST, for example —
+	// publish EarningsPerShareDiluted under both "pure" (legacy) and
+	// "USD/shares" (current). Selecting only the first unit non-deterministically
+	// drops the bulk of the data. The "most-recently-filed wins" dedup below
+	// handles any per-period collisions safely because all unit variants of the
+	// same per-share or currency concept carry the same numeric value.
 	result := make(map[string]float64)
 	filingDates := make(map[string]string)  // period-end → most recent filed date
 	periodStarts := make(map[string]string) // period-end → period start date
@@ -495,7 +501,6 @@ func (c *SECClient) fetchConcept(cik int, taxonomy, concept string) (map[string]
 				annuals = append(annuals, periodRec{start, end, e.Filed, e.Val})
 			}
 		}
-		break // only process the first unit type
 	}
 
 	// Derive Q1 = H1 − Q2 from half-year YTD entries paired with the standalone

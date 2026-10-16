@@ -1,8 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestParseEPS(t *testing.T) {
@@ -104,5 +110,78 @@ func TestParseFiscalQuarterEnd(t *testing.T) {
 		if got.Format("2006-01-02") != tc.wantStr {
 			t.Errorf("parseFiscalQuarterEnd(%q) = %s, want %s", tc.input, got.Format("2006-01-02"), tc.wantStr)
 		}
+	}
+}
+
+// TestNasdaqGetJSONRetriesWAFResponses exercises the WAF-detection retry
+// loop: an HTTP 200 with text/html body (BOM-prefixed <html>) and an HTTP
+// 403 both must be retried, and a subsequent JSON response must decode
+// cleanly. This is the regression test for the two Akamai Bot Manager
+// failure modes we saw against api.nasdaq.com.
+func TestNasdaqGetJSONRetriesWAFResponses(t *testing.T) {
+	// Shrink backoffs so the test runs in milliseconds.
+	orig := nasdaqRetryBackoffs
+	nasdaqRetryBackoffs = []time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
+	defer func() { nasdaqRetryBackoffs = orig }()
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		switch n {
+		case 1:
+			// HTTP 200 + BOM-prefixed HTML — the sneaky WAF challenge.
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("\xef\xbb\xbf\r\n<html><head><title>Access Denied</title></head></html>"))
+		case 2:
+			// Plain 403 — the loud WAF block.
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("<html>Access Denied</html>"))
+		default:
+			// Success on the third attempt.
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"ok":true,"n":42}`)
+		}
+	}))
+	defer srv.Close()
+
+	var out struct {
+		OK bool `json:"ok"`
+		N  int  `json:"n"`
+	}
+	if err := nasdaqGetJSON(srv.Client(), srv.URL+"/api/test", &out); err != nil {
+		t.Fatalf("expected success after retries, got error: %v", err)
+	}
+	if !out.OK || out.N != 42 {
+		t.Fatalf("decoded body mismatch: %+v", out)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("expected 3 server calls (WAF-html, 403, JSON), got %d", got)
+	}
+}
+
+// TestNasdaqGetJSONGivesUpAfterMaxRetries confirms the loop returns the
+// last WAF error (not a decode error) once every attempt has been used.
+func TestNasdaqGetJSONGivesUpAfterMaxRetries(t *testing.T) {
+	orig := nasdaqRetryBackoffs
+	nasdaqRetryBackoffs = []time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
+	defer func() { nasdaqRetryBackoffs = orig }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("<html>Access Denied</html>"))
+	}))
+	defer srv.Close()
+
+	var out map[string]interface{}
+	err := nasdaqGetJSON(srv.Client(), srv.URL+"/api/test", &out)
+	if err == nil {
+		t.Fatal("expected error after exhausted retries, got nil")
+	}
+	if !strings.Contains(err.Error(), "WAF") {
+		t.Fatalf("expected WAF error, got: %v", err)
 	}
 }

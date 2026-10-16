@@ -30,9 +30,22 @@ type saEstimates struct {
 	AvgPriceTarget float64
 }
 
-// saQuarterlyRe extracts the four parallel arrays from the SvelteKit table payload.
-var saQuarterlyRe = regexp.MustCompile(
-	`quarterly:\{eps:\[(.*?)\],dates:\[(.*?)\],revenue:\[(.*?)\],analysts:\[(.*?)\]`,
+// saQuarterlyStartRe locates the start of the SvelteKit forecast table block.
+// The block leads with one of the per-share field arrays. The schema has
+// drifted over time — earlier it began with eps:[, currently it begins with
+// dps:[ (followed by eps,ffo,pFFO,dates,revenue,analysts,...). We anchor on
+// either prefix and extract individual arrays below; ordering is no longer
+// assumed contiguous.
+var saQuarterlyStartRe = regexp.MustCompile(`quarterly:\{(?:dps|eps):\[`)
+
+// Per-field array extractors, scoped to a window after the quarterly block
+// start. The trailing `:\[` is what distinguishes e.g. eps:[ from epsGrowth:[
+// or epsNext:{ in the surrounding payload.
+var (
+	saEpsArrRe      = regexp.MustCompile(`eps:\[(.*?)\]`)
+	saDatesArrRe    = regexp.MustCompile(`dates:\[(.*?)\]`)
+	saRevenueArrRe  = regexp.MustCompile(`revenue:\[(.*?)\]`)
+	saAnalystsArrRe = regexp.MustCompile(`analysts:\[(.*?)\]`)
 )
 
 // saStatsRe extracts the stats.quarterly block which holds year-ago values.
@@ -85,15 +98,26 @@ func (e *Enricher) fetchSAEstimates(symbol string) (*saEstimates, error) {
 
 func parseSAEstimates(html string) (*saEstimates, error) {
 	// ── 1. Quarterly table: find the first row with analysts != null ───────────
-	m := saQuarterlyRe.FindStringSubmatch(html)
-	if m == nil {
+	loc := saQuarterlyStartRe.FindStringIndex(html)
+	if loc == nil {
 		return nil, fmt.Errorf("quarterly estimates block not found")
 	}
+	end := loc[0] + 8000
+	if end > len(html) {
+		end = len(html)
+	}
+	qBlock := html[loc[0]:end]
 
-	eps      := saParseFloats(m[1])
-	dates    := saParseStrings(m[2])
-	revenues := saParseFloats(m[3])
-	analysts := saParseInts(m[4])
+	pickArr := func(re *regexp.Regexp) string {
+		if mm := re.FindStringSubmatch(qBlock); mm != nil {
+			return mm[1]
+		}
+		return ""
+	}
+	eps := saParseFloats(pickArr(saEpsArrRe))
+	dates := saParseStrings(pickArr(saDatesArrRe))
+	revenues := saParseFloats(pickArr(saRevenueArrRe))
+	analysts := saParseInts(pickArr(saAnalystsArrRe))
 
 	var epsEst, revEstFromTable float64
 	var reportDate string
