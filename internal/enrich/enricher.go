@@ -206,8 +206,10 @@ func (e *Enricher) buildSummary(res domain.EarningsResult, row domain.CalendarRo
 		// NBIS — Nebius) which file 6-K interim reports instead of 10-Qs and
 		// therefore have no us-gaap quarterly facts in the SEC XBRL API.
 		usExchange := e.exCfg.Exchange == exchange.ExchangeUS || e.exCfg.Exchange == ""
+		var yerr error
 		if (err != nil || len(h) < 2) && usExchange {
-			yh, yerr := e.yahoo.FetchQuarterlyActuals(res.Symbol)
+			var yh []domain.QuarterActual
+			yh, yerr = e.yahoo.FetchQuarterlyActuals(res.Symbol)
 			if yerr == nil && len(yh) >= 2 {
 				// Yahoo's quoteSummary caps at 4 trailing quarters, which leaves
 				// YoY math empty on every history row. Try to backfill older
@@ -226,6 +228,8 @@ func (e *Enricher) buildSummary(res domain.EarningsResult, row domain.CalendarRo
 			}
 		}
 		if err != nil || len(h) < 2 {
+			logging.Logf("Warning: quarterly history unavailable for %s (primary: %d quarters, err=%v; Yahoo fallback err=%v)",
+				res.Symbol, len(h), err, yerr)
 			return
 		}
 		if announceDates, err2 := e.providers.Financials.FetchEarningsAnnouncementDates(res.Symbol, h); err2 == nil {
