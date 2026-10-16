@@ -34,57 +34,68 @@ go run . --symbol AAPL --backtest
 # LLM rating from the sibling llm-earnings-agent Python project (off by default)
 go run . --symbol AAPL --llm-rating
 
-# Test all
-go test ./...
+# Test all (some tests hit the network; the full run takes ~4–5 min)
+go test -timeout 600s ./...
 
-# Test a single function
-go test -run TestComputeMaxPain
-go test -run TestExchangeForTicker
-go test -run TestComputeRecommendation
+# Test a single package / function
+go test ./internal/source/yahoo -run TestComputeMaxPain
+go test ./internal/exchange -run TestExchangeForTicker
+go test ./internal/recommend -run TestComputeRecommendation
+
+# Live-API integration tests (build tag), one file per package
+go test -tags integration -run TestIntegration -timeout 300s ./...
 ```
 
 ## Architecture
 
-Single `main` package. Fetches an earnings calendar for a date range, filters by market cap and (optionally) reporting time, enriches each stock through provider-interface implementations, then outputs tables/CSV/JSON.
+Thin CLI (`main.go`) over packages in `internal/`, split by domain responsibility. Fetches an earnings calendar for a date range, filters by market cap and (optionally) reporting time, enriches each stock through provider-interface implementations, then outputs tables/CSV/JSON.
 
-Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvider`, `PriceProvider`, `FinancialsProvider`, `HolidayCalendar`). `NewProvidersForExchange(cfg)` returns a US bundle (Nasdaq + SEC) or international bundle (Finnhub + Yahoo) — the enrichment pipeline is identical for both.
+Data sources are abstracted behind interfaces in `internal/provider` (`CalendarProvider`, `PriceProvider`, `FinancialsProvider`; `HolidayCalendar` lives in `internal/exchange`). `provider.NewProvidersForExchange(cfg, …)` returns a US bundle (SEC + Nasdaq + Yahoo prices) or international bundle (Finnhub + Yahoo) — the enrichment pipeline is identical for both.
+
+**Layering** (imports only point downward; `domain` imports nothing internal):
+
+```
+main.go
+  └─ enrich ──┬─ peers, sector, recommend, backtest      (analysis)
+              ├─ provider ── source/{sec,nasdaq,finnhub,yahoo}
+              ├─ source/{stockanalysis,finviz,llmagent}  (scrapers / external tools)
+              └─ macro, exchange, indicators, logging
+  └─ report (presentation)
+domain  ← shared data model used by every layer
+```
 
 **Data flow:**
-1. `main.go` → parses `--exchange` (or infers from ticker suffix), builds `ExchangeConfig`, picks calendar provider
-2. Calendar provider (`us_calendar.go` for US, `intl_calendar.go` for LSE/FSE/Euronext) → fetches earnings calendar
-3. `main.go` → filters by `--min-cap-b` and `--timing`, builds preliminary `[]EarningsResult`
-4. `enricher.go` → `EnrichAll()` runs 5 concurrent goroutines; `buildSummary()` chains all data fetches via `e.providers.*`
-5. `main.go` → assembles `EarningsResult` from `FinancialSummary`, sorts, outputs with currency-aware formatting
+1. `main.go` → parses `--exchange` (or infers from ticker suffix via `exchange.ForTicker`), builds `exchange.Config`, picks calendar provider (`nasdaq.Client` for US, `finnhub.CalendarClient` for LSE/FSE/Euronext)
+2. Calendar provider → fetches earnings calendar (`[]domain.EarningsEvent` + `map[string]domain.CalendarRow`)
+3. `main.go` → filters by `--min-cap-b` and `--timing`, builds preliminary `[]domain.EarningsResult`
+4. `enrich.Enricher.EnrichStream()` runs 5 concurrent stocks; `buildSummary()` chains all data fetches via `e.providers.*` and the source clients
+5. `report.AssembleResult` maps `domain.FinancialSummary` → `domain.EarningsResult`; `main.go` sorts; `report.Write*` outputs with currency-aware formatting
 
-**Key files:**
+**Packages:**
 
-| File | Responsibility |
+| Package | Responsibility |
 |---|---|
-| `main.go` | Entry point, `EarningsResult` / `EarningsEvent` types, CLI flags, exchange parsing, timing filter, final assembly |
-| `exchange.go` | `Exchange` enum, `ExchangeConfig`, ticker↔Yahoo↔Finnhub symbol conversion, currency helpers |
-| `provider.go` | Provider interfaces + `NewProvidersForExchange` factory bundling concrete implementations |
-| `enricher.go` | `FinancialSummary` struct, `Enricher`, `buildSummary()`, US-only guards for institutional/peers/events |
-| `us_calendar.go` | Nasdaq earnings calendar, US prices, forward EPS forecasts (formerly `nasdaq.go`) |
-| `intl_calendar.go` | Finnhub earnings calendar for LSE/FSE/Euronext |
-| `yahoo_price.go` | Yahoo Finance v8 chart API for international price history |
-| `yahoo_financials.go` | Yahoo `quoteSummary` fallback for quarterly EPS + revenue + announcement date when SEC XBRL returns nothing (e.g. US-listed Foreign Private Issuers like NBIS that file 6-K instead of 10-Q) |
-| `finnhub.go` | Finnhub MSPR (insider sentiment) — 12-month window |
-| `finnhub_financials.go` | Finnhub-based `FinancialsProvider` for international stocks |
-| `sec.go` | `SECClient`: XBRL quarterly actuals, 8-K announcement dates, Form 4 insiders, SIC peers (US only) |
-| `stockanalysis.go` | Revenue/EPS consensus + analyst ratings (scraped) |
-| `options.go` | Yahoo Finance options: crumb auth, IV, Expected Move, P/C ratio, Skew, Max Pain |
-| `finviz.go` | Institutional ownership scraper (US only — guarded) |
-| `peers.go` | Sector peers via SEC SIC codes (US only — guarded); also computes peer PE_TTM / PS for industry medians. Consults `peer_overrides.go` first |
-| `peer_overrides.go` | File-backed peer cache (`peer_overrides.json`) with three resolution layers: manual entries → Yahoo `recommendationsbysymbol` → LLM via `claude -p`. Yahoo and LLM results are cached back to disk so each ticker is resolved once |
-| `sector_momentum.go` | SIC → sector ETF map (XLK, SOXX, XLF, XLV, etc.); fetches 1M / 3M ETF returns via Yahoo with per-process cache |
-| `signals.go` | 11 directional signals (`signalValuationVsGrowth`, `signalGrowthTrajectory`, `signalPEvsIndustry`, `signalPosition`, `signalInsider`, `signalInstitutional`, `signalOptionsSentiment`, `signalBeatHistory`, `signalReactionTendency`, `signalPeerReactions`, `signalSectorMomentum`); each returns `(score, confidence, reason)` |
-| `score.go` | `Recommendation` type, `ComputeRecommendation` aggregator (weight × score × confidence), label thresholds, top-reasons ranking |
-| `backtest.go` | Walk-forward Tier-1 backtest using `BacktestSignals` subset; `RunBacktest` / `BacktestSummary` / `FormatBacktestSummary` |
-| `llm_rating.go` | `LLMRating` struct + `FetchLLMRating` subprocess wrapper around the sibling `llm-earnings-agent` Python CLI; rendered by `writeLLMRating`. Result is parallel to `Recommendation` — it is **not** mixed into `ComputeRecommendation` |
-| `workday.go` | `HolidayCalendar` interface + NYSE/LSE/XETRA/Euronext implementations, `NewHolidayCalendar` factory |
-| `macro.go` | FOMC/CPI/NFP (US), ECB Rate (FSE/Euronext), BoE Rate (LSE); `LoadMacroCalendar(from, to, cfg)` |
-| `format.go` | Math/string helpers: `pctChange`, `fmtCurrency`, `fmtCurrencyB`, `computeResultDate`, etc. |
-| `output.go` | All `write*` functions: `writeTable`, `writeCSV`, `writeJSON`, `writeOptionsTable`, etc. |
+| `main.go` (root) | Entry point: CLI flags, exchange parsing, market-cap / timing filters, output-format dispatch |
+| `internal/domain` | Shared data model, types only: `EarningsEvent`, `CalendarRow`, `QuarterActual`, `ForwardQuarter`, `EarningsReaction`, `PricePoint`, `FinancialSummary`, `EarningsResult`, `InsiderSummary`, `MaterialEvent`, `InstitutionalData`, `OptionsSnapshot`/`GEX*`, `PeerResult`, `Recommendation`, `SignalResult`, `BacktestSummary`, `LLMRating` |
+| `internal/exchange` | `Exchange` enum, `Config`, ticker↔Yahoo↔Finnhub symbol conversion, `CurrencySymbol`; `holidays.go`: `HolidayCalendar` interface + NYSE/LSE/XETRA/Euronext calendars, `NewHolidayCalendar`, `ComputeResultDate` |
+| `internal/macro` | FOMC/CPI/NFP (US), ECB Rate (FSE/Euronext), BoE Rate (LSE); `LoadCalendar(from, to, cfg)`, `Calendar.EventsNear`, `FormatContext` |
+| `internal/indicators` | Price math: `PctChange`, `ClosestPrice`, `OpenOnDate`, `DailyVolatility`, `RSI14`, `Median` |
+| `internal/logging` | `Logf` (stderr progress/warnings) |
+| `internal/provider` | Provider interfaces + `NewProvidersForExchange` factory; `us.go`: `USFinancials` (SEC filings + Nasdaq forward EPS) |
+| `internal/source/sec` | `sec.Client`: XBRL quarterly actuals, 8-K announcement dates + material events, Form 4 insiders, SIC codes (US only) |
+| `internal/source/nasdaq` | Nasdaq earnings calendar (`Client`), `PriceProvider` (delegates bars to Yahoo chart, per-date EPS estimates from Nasdaq), `FetchForwardEPS` |
+| `internal/source/finnhub` | Finnhub client + MSPR (insider sentiment, 12-month window), `CalendarClient` for LSE/FSE/Euronext, `FinancialsProvider` for international stocks |
+| `internal/source/yahoo` | `client.go`: cookie + crumb session (`Client`); `prices.go`: v8 chart `PriceProvider` + `FetchChartHistory`; `financials.go`: `quoteSummary` fallback for quarterly actuals (FPIs); `options.go`: IV, Expected Move, P/C, Skew, Max Pain, GEX |
+| `internal/source/stockanalysis` | Revenue/EPS consensus + analyst ratings (`FetchEstimates`), quarterly history backfill (`FetchQuarterlyHistory`, `MergeHistoryWithYahoo`) |
+| `internal/source/finviz` | Institutional ownership scraper (US only — guarded) |
+| `internal/source/llmagent` | `FetchRating` subprocess wrapper around the sibling `llm-earnings-agent` Python CLI |
+| `internal/peers` | `Finder.Find`: sector peers via SEC SIC codes (US only — guarded), peer reactions, peer PE_TTM / PS for industry medians. `overrides.go`: file-backed peer cache (`peer_overrides.json`) with three layers: manual → Yahoo `recommendationsbysymbol` → LLM via `claude -p`; Yahoo/LLM results are cached back to disk |
+| `internal/sector` | SIC → sector group (`SICGroup`) and sector ETF map (XLK, SOXX, XLF, XLV, …); `FetchMomentum` / `MomentumAt` (1M / 3M ETF returns, per-process cache) |
+| `internal/recommend` | `signals.go`: 11 directional signals (`signalValuationVsGrowth`, `signalGrowthTrajectory`, `signalPEvsIndustry`, `signalPosition`, `signalInsider`, `signalInstitutional`, `signalOptionsSentiment`, `signalBeatHistory`, `signalReactionTendency`, `signalPeerReactions`, `signalSectorMomentum`), each returning `(score, confidence, reason)`; `score.go`: `ComputeRecommendation` aggregator, label thresholds, top-reasons ranking |
+| `internal/backtest` | Walk-forward Tier-1 backtest using `recommend.BacktestSignals`; `RunBacktest` / `FormatBacktestSummary` |
+| `internal/enrich` | `Enricher` (`Config`, `EnrichStream`, `EnrichAll`), `buildSummary()`, US-only guards for institutional/peers/events, `peerValuationMedians` |
+| `internal/report` | `AssembleResult`, all `Write*` output (table/stock cards, CSV, JSON, LLM rating block), `fmt*` formatting helpers |
+| `internal/testutil` | `MockTransport` / `NewMockClient` HTTP mocks and shared test fixtures (`MustDate`, `ConceptJSON`) |
 
 ## Important Implementation Details
 
@@ -92,15 +103,15 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 
 **Timing filter:** `--timing bmo|amc` is applied in `main.go` *before* enrichment fires, so excluded stocks consume zero API calls. Empty `--timing` keeps all stocks.
 
-**International data gaps:** Institutional ownership (Finviz), sector peers (SEC SIC), and material 8-K events are US-only. The enricher's US-only guard (`isUS := e.exCfg.Exchange == ExchangeUS || e.exCfg.Exchange == ""`) skips these provider calls for non-US exchanges; output renders "N/A" for the corresponding sections.
+**International data gaps:** Institutional ownership (Finviz), sector peers (SEC SIC), and material 8-K events are US-only. The enricher's US-only guard (`isUS := e.exCfg.Exchange == exchange.ExchangeUS || e.exCfg.Exchange == ""` in `internal/enrich`) skips these provider calls for non-US exchanges; output renders "N/A" for the corresponding sections.
 
-**SEC XBRL comparative data:** When a company files a 10-Q, the XBRL data includes comparative prior-year figures tagged with the current filing date. `fetchConcept` in `sec.go` applies a 150-day cap (`filed - periodEnd <= 150 days`) to reject these comparative re-filings. Within the window, the most recently filed date wins (handles amendments).
+**SEC XBRL comparative data:** When a company files a 10-Q, the XBRL data includes comparative prior-year figures tagged with the current filing date. `fetchConcept` in `internal/source/sec` applies a 150-day cap (`filed - periodEnd <= 150 days`) to reject these comparative re-filings. Within the window, the most recently filed date wins (handles amendments).
 
-**Foreign Private Issuers (FPI) on US exchanges:** Tickers like NBIS (Nebius), TSEM (Tower Semi), TAK (Takeda) file 6-K interim reports and 20-F annuals instead of 10-Q/10-K, so the SEC XBRL companyconcept API returns no quarterly facts and the History/EarningsReactions blocks would otherwise be empty. The `buildSummary` history goroutine detects this (primary provider returns <2 quarters for a US-exchange ticker) and falls through to `fetchYahooQuarterlyActuals` in `yahoo_financials.go`, which queries Yahoo's `quoteSummary` for `earnings.earningsChart.quarterly` (periodEnd + reportedDate + EPS) merged with `incomeStatementHistoryQuarterly.incomeStatementHistory` (revenue). Yahoo's `reportedDate` doubles as the announcement date, so `EarningsReactions` rebuild correctly without needing the SEC 8-K lookup.
+**Foreign Private Issuers (FPI) on US exchanges:** Tickers like NBIS (Nebius), TSEM (Tower Semi), TAK (Takeda) file 6-K interim reports and 20-F annuals instead of 10-Q/10-K, so the SEC XBRL companyconcept API returns no quarterly facts and the History/EarningsReactions blocks would otherwise be empty. The `buildSummary` history goroutine detects this (primary provider returns <2 quarters for a US-exchange ticker) and falls through to `yahoo.Client.FetchQuarterlyActuals` (`internal/source/yahoo/financials.go`), backfilled with `stockanalysis.FetchQuarterlyHistory` when Yahoo returns only a few quarters, which queries Yahoo's `quoteSummary` for `earnings.earningsChart.quarterly` (periodEnd + reportedDate + EPS) merged with `incomeStatementHistoryQuarterly.incomeStatementHistory` (revenue). Yahoo's `reportedDate` doubles as the announcement date, so `EarningsReactions` rebuild correctly without needing the SEC 8-K lookup.
 
-**Yahoo Finance auth:** Yahoo requires a crumb token tied to a cookie session. `ensureYahooCrumb()` in `options.go` hits `fc.yahoo.com` (returns 404 but sets the `A3` cookie), then fetches `query2.finance.yahoo.com/v1/test/getcrumb`. All Yahoo API calls use `yahooClient` (has a cookie jar) with `?crumb=` appended.
+**Yahoo Finance auth:** Yahoo requires a crumb token tied to a cookie session. `yahoo.Client.ensureCrumb()` in `internal/source/yahoo/client.go` hits `fc.yahoo.com` (returns 404 but sets the `A3` cookie), then fetches `query2.finance.yahoo.com/v1/test/getcrumb`. All crumb-authenticated Yahoo calls go through the shared `yahoo.Client` (its `http.Client` has a cookie jar; `HTTP()` exposes it to other Yahoo endpoints) with `?crumb=` appended.
 
-**Price history (US):** Nasdaq API caps at ~300 rows. `us_calendar.go`'s `fetchPriceHistory` makes two sequential calls covering 9-month halves then merges/deduplicates, providing ~18 months needed for 4-quarter reaction history with pre-earnings lookback.
+**Price history (US):** `nasdaq.PriceProvider.FetchPriceHistory` delegates to Yahoo's chart API (`yahoo.FetchChartHistory`, ~500 daily bars in one call) to keep Nasdaq traffic to the calendar plus per-date EPS lookups (Nasdaq's Akamai bot manager bans bursty clients).
 
 **Price history (international):** Yahoo `chart` endpoint with `range=2y` returns ~500 rows in one call.
 
@@ -108,18 +119,18 @@ Data sources are abstracted behind interfaces in `provider.go` (`CalendarProvide
 
 **Valuation ratios:** PE(ttm) and PE(forward) use current price from the price history (last row). PS uses `MarketCapB` from the calendar (no price fetch needed).
 
-**MSPR sparsity:** `finnhub.go` queries a 12-month window for insider sentiment because large-cap insiders trade infrequently — a 3-month window returned no data for many tickers. MSPR-unavailable is logged as "Note" rather than "Warning" since it's expected.
+**MSPR sparsity:** `finnhub.Client.FetchMSPR` (`internal/source/finnhub`) queries a 12-month window for insider sentiment because large-cap insiders trade infrequently — a 3-month window returned no data for many tickers. MSPR-unavailable is logged as "Note" rather than "Warning" since it's expected.
 
-**Currency:** `FinancialSummary` and `EarningsResult` carry a `Currency` field (USD/GBP/EUR). `fmtCurrency` and `fmtCurrencyB` apply the right symbol (£/€/$). Insider transaction values stay in USD (Form 4 reports in USD; Finnhub returns local currency for international, displayed as-is).
+**Currency:** `domain.FinancialSummary` and `domain.EarningsResult` carry a `Currency` field (USD/GBP/EUR). `fmtCurrency` and `fmtCurrencyB` (`internal/report`) apply the right symbol (£/€/$). Insider transaction values stay in USD (Form 4 reports in USD; Finnhub returns local currency for international, displayed as-is).
 
-**Recommendation pipeline:** After all per-stock data is collected, `buildSummary` calls `ComputeRecommendation(s)` which runs every entry in `DefaultSignals` and aggregates them as `Σ weight × score × confidence / Σ weight × 100`. Confidence acts as a multiplier inside the sum: a low-confidence signal pulls the score toward zero rather than swinging it. Label thresholds (`labelThresholdScore=15`, `labelThresholdConfidence=0.4`) are intentionally conservative — when in doubt, output is "Neutral". The `TopReasons` field surfaces the three highest-impact `|weight × score × confidence|` reason strings for human-readable output.
+**Recommendation pipeline:** After all per-stock data is collected, `buildSummary` calls `recommend.ComputeRecommendation(s)` which runs every entry in `recommend.DefaultSignals` and aggregates them as `Σ weight × score × confidence / Σ weight × 100`. Confidence acts as a multiplier inside the sum: a low-confidence signal pulls the score toward zero rather than swinging it. Label thresholds (`labelThresholdScore=15`, `labelThresholdConfidence=0.4`) are intentionally conservative — when in doubt, output is "Neutral". The `TopReasons` field surfaces the three highest-impact `|weight × score × confidence|` reason strings for human-readable output.
 
-**SIC fetch fan-out:** Both `peers.go` and `sector_momentum.go` need the SIC code. `buildSummary` fetches it once into `sicCode` behind a `sicReady` channel; the peers and sector-momentum goroutines both `<-sicReady` before proceeding. This avoids two SEC ticker-map lookups per stock.
+**SIC fetch fan-out:** Both `internal/peers` and `internal/sector` need the SIC code. `buildSummary` fetches it once into `sicCode` behind a `sicReady` channel; the peers and sector-momentum goroutines both `<-sicReady` before proceeding. This avoids two SEC ticker-map lookups per stock.
 
-**Peer resolution order:** `fetchPeers` in `peers.go` consults `peer_overrides.go` before falling back to SIC matching. The override store (`peer_overrides.json` at repo root, override path with `PEER_OVERRIDES_FILE`) holds three kinds of entries: `"manual"` (curated, e.g. NBIS→[CRWV,NET,AKAM]), `"yahoo"` (auto-populated from Yahoo's `recommendationsbysymbol` v6 endpoint), and `"llm"` (auto-populated from `claude -p` asking for product/market competitors). When an override is present, the cap-band filter and SIC sector check are both skipped — the curated list is treated as authoritative and only restricted by "must have reported in the ±75-day calendar window." Yahoo and LLM responses are written back to disk on first resolution so subsequent runs hit the cache. Delete an entry from `peer_overrides.json` to force re-resolution.
+**Peer resolution order:** `peers.Finder.Find` consults the override store (`internal/peers/overrides.go`) before falling back to SIC matching. The override store (`peer_overrides.json` at repo root, override path with `PEER_OVERRIDES_FILE`) holds three kinds of entries: `"manual"` (curated, e.g. NBIS→[CRWV,NET,AKAM]), `"yahoo"` (auto-populated from Yahoo's `recommendationsbysymbol` v6 endpoint), and `"llm"` (auto-populated from `claude -p` asking for product/market competitors). When an override is present, the cap-band filter and SIC sector check are both skipped — the curated list is treated as authoritative and only restricted by "must have reported in the ±75-day calendar window." Yahoo and LLM responses are written back to disk on first resolution so subsequent runs hit the cache. Delete an entry from `peer_overrides.json` to force re-resolution.
 
-**LLM rating (opt-in via `--llm-rating`):** when the flag is set, `buildSummary` runs `FetchLLMRating(ctx, symbol)` as a Phase 1 goroutine alongside the others. It shells out to the sibling `llm-earnings-agent analyze --symbol X --output json` binary (override path with `LLM_AGENT_BIN`) with a 5-minute timeout. Errors are logged and swallowed so a failing LLM call never blocks the rest of the pipeline. The result is rendered by `writeLLMRating` directly below `writeRecommendation` in the stock card and is **not** fed back into `ComputeRecommendation` — the LLM rating and the deterministic Rating stay independent until track record warrants mixing.
+**LLM rating (opt-in via `--llm-rating`):** when the flag is set, `buildSummary` runs `llmagent.FetchRating(ctx, symbol)` as a Phase 1 goroutine alongside the others. It shells out to the sibling `llm-earnings-agent analyze --symbol X --output json` binary (override path with `LLM_AGENT_BIN`) with a 5-minute timeout. Errors are logged and swallowed so a failing LLM call never blocks the rest of the pipeline. The result is rendered by `report.WriteLLMRating` directly below `writeRecommendation` in the stock card and is **not** fed back into `ComputeRecommendation` — the LLM rating and the deterministic Rating stay independent until track record warrants mixing.
 
-**Industry medians:** After the peers list is populated, `peerValuationMedians()` derives median PE_TTM and PS across peers that reported usable values. These feed `signalPEvsIndustry`. Peers compute their own PE/PS in `peers.go` from each peer's TTM EPS / TTM Revenue at the matching quarter, divided by current price / market cap.
+**Industry medians:** After the peers list is populated, `peerValuationMedians()` derives median PE_TTM and PS across peers that reported usable values. These feed `signalPEvsIndustry`. Peers compute their own PE/PS in `internal/peers` from each peer's TTM EPS / TTM Revenue at the matching quarter, divided by current price / market cap.
 
-**Backtest scope (Tier-1 only):** `RunBacktest` evaluates only `BacktestSignals` (`position`, `reaction_tendency`, `peer_reactions`, `sector_momentum`) — the strict subset reconstructable at a historical point in time without lookahead. The eight signals that depend on *current* fundamentals (PE/PS at date X, MSPR at date X, options snapshot, current consensus estimates) are excluded because we don't have the historical snapshots. Walk-forward: for each prior reaction, prices are truncated to bars `< announcement_date`, prior reactions are restricted to the strict prefix, and `SectorMomentumAt` recomputes the ETF return ending at that date. The harness compares predicted label to actual signed return (±1% deadband), reports hit rate vs the always-guess-most-common-label baseline.
+**Backtest scope (Tier-1 only):** `backtest.RunBacktest` evaluates only `recommend.BacktestSignals` (`position`, `reaction_tendency`, `peer_reactions`, `sector_momentum`) — the strict subset reconstructable at a historical point in time without lookahead. The eight signals that depend on *current* fundamentals (PE/PS at date X, MSPR at date X, options snapshot, current consensus estimates) are excluded because we don't have the historical snapshots. Walk-forward: for each prior reaction, prices are truncated to bars `< announcement_date`, prior reactions are restricted to the strict prefix, and `sector.MomentumAt` recomputes the ETF return ending at that date. The harness compares predicted label to actual signed return (±1% deadband), reports hit rate vs the always-guess-most-common-label baseline.

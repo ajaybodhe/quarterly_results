@@ -1,0 +1,1181 @@
+package sec
+
+import (
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"quarterly_results/internal/domain"
+)
+
+// Client fetches quarterly financial data from SEC EDGAR's XBRL API.
+// No API key required. Rate limit: ≤10 req/s.
+// SEC requires a descriptive User-Agent with a real contact email per their
+// fair-access policy — requests with placeholder emails like "example.com" are
+// rate-limited (HTTP 429). Override with the SEC_USER_AGENT env var.
+var secUserAgent = func() string {
+	if v := os.Getenv("SEC_USER_AGENT"); v != "" {
+		return v
+	}
+	return "quarterly-results-tool ajaybodhe@gmail.com"
+}()
+
+// secRateLimiter is a token-bucket rate limiter for SEC EDGAR API calls.
+// It allows a burst of up to `rps` requests, then refills at rps tokens/second.
+type secRateLimiter struct {
+	tokens chan struct{}
+}
+
+func newSecRateLimiter(rps int) *secRateLimiter {
+	rl := &secRateLimiter{tokens: make(chan struct{}, rps)}
+	for i := 0; i < rps; i++ {
+		rl.tokens <- struct{}{} // pre-fill bucket
+	}
+	go func() {
+		t := time.NewTicker(time.Second / time.Duration(rps))
+		defer t.Stop()
+		for range t.C {
+			select {
+			case rl.tokens <- struct{}{}:
+			default: // bucket full
+			}
+		}
+	}()
+	return rl
+}
+
+func (rl *secRateLimiter) Take() {
+	if rl != nil {
+		<-rl.tokens
+	}
+}
+
+type Client struct {
+	httpClient *http.Client
+	tickerCIK  map[string]int // upper-case ticker → CIK int
+	mu         sync.Mutex
+
+	// In-memory submissions cache: fetchSubmissions is called 4× per stock
+	// (SIC lookup, quarterly actuals, announcement dates, insider activity,
+	// material events). Caching here eliminates ~75% of SEC submissions calls.
+	subsCache   map[int]*secSubmissionsResponse
+	subsCacheMu sync.Mutex
+
+	rl *secRateLimiter // shared rate limiter: ≤8 req/s to stay under SEC's 10/s cap
+}
+
+func NewClient() *Client {
+	return &Client{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		subsCache:  make(map[int]*secSubmissionsResponse),
+		rl:         newSecRateLimiter(8),
+	}
+}
+
+// NewClientWithHTTP returns an un-throttled, uncached client using the given
+// http.Client and a preloaded ticker→CIK map. Intended for tests and tooling.
+func NewClientWithHTTP(client *http.Client, tickerCIK map[string]int) *Client {
+	return &Client{httpClient: client, tickerCIK: tickerCIK}
+}
+
+// lookupCIK returns the SEC CIK for the given ticker, or an error if not found.
+func (c *Client) lookupCIK(symbol string) (int, error) {
+	c.mu.Lock()
+	cik, ok := c.tickerCIK[strings.ToUpper(symbol)]
+	c.mu.Unlock()
+	if !ok {
+		return 0, fmt.Errorf(
+			"symbol %s not in SEC ticker map (stale cache? delete %s to force refresh)",
+			symbol, tickerCachePath(),
+		)
+	}
+	return cik, nil
+}
+
+// tickerEntry is one entry from SEC company_tickers.json.
+type tickerEntry struct {
+	CIK    int    `json:"cik_str"`
+	Ticker string `json:"ticker"`
+}
+
+// LoadTickerMap fetches the SEC ticker→CIK mapping.
+// It is safe to call concurrently. If a previous call already succeeded, it
+// returns immediately. If the previous call failed (transient error), it retries.
+// The mapping is also cached on disk (~24h) to avoid hitting SEC on every run;
+// the fetch endpoint is aggressively rate-limited by IP.
+func (c *Client) LoadTickerMap() error {
+	c.mu.Lock()
+	if c.tickerCIK != nil {
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
+
+	// Try disk cache first.
+	if m, ok := readTickerCache(); ok {
+		c.mu.Lock()
+		c.tickerCIK = m
+		c.mu.Unlock()
+		return nil
+	}
+
+	req, _ := http.NewRequest("GET", "https://www.sec.gov/files/company_tickers.json", nil)
+	req.Header.Set("User-Agent", secUserAgent)
+	c.rl.Take()
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("SEC ticker map fetch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		hint := ""
+		if resp.StatusCode == http.StatusTooManyRequests {
+			hint = " (rate-limited by SEC — wait a few minutes, or override with SEC_USER_AGENT env var)"
+		}
+		return fmt.Errorf("SEC ticker map HTTP %d%s", resp.StatusCode, hint)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("SEC ticker map read: %w", err)
+	}
+
+	var raw map[string]tickerEntry
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return fmt.Errorf("SEC ticker map decode: %w", err)
+	}
+
+	m := make(map[string]int, len(raw))
+	for _, e := range raw {
+		m[strings.ToUpper(e.Ticker)] = e.CIK
+	}
+
+	c.mu.Lock()
+	c.tickerCIK = m
+	c.mu.Unlock()
+
+	writeTickerCache(body)
+	return nil
+}
+
+// tickerCachePath returns the on-disk location for the ticker map cache.
+func tickerCachePath() string {
+	dir, err := os.UserCacheDir()
+	if err != nil || dir == "" {
+		dir = os.TempDir()
+	}
+	return path.Join(dir, "quarterly_results", "sec_company_tickers.json")
+}
+
+// readTickerCache returns the cached ticker map if the file exists and is
+// fresher than 24 hours. Returns (nil, false) on any miss or read error.
+func readTickerCache() (map[string]int, bool) {
+	p := tickerCachePath()
+	info, err := os.Stat(p)
+	if err != nil || time.Since(info.ModTime()) > 24*time.Hour {
+		return nil, false
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, false
+	}
+	var raw map[string]tickerEntry
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, false
+	}
+	m := make(map[string]int, len(raw))
+	for _, e := range raw {
+		m[strings.ToUpper(e.Ticker)] = e.CIK
+	}
+	return m, true
+}
+
+// writeTickerCache persists the SEC ticker map JSON to disk. Errors are ignored
+// — caching is best-effort and a failure just means the next run will refetch.
+func writeTickerCache(data []byte) {
+	p := tickerCachePath()
+	if err := os.MkdirAll(path.Dir(p), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(p, data, 0o644)
+}
+
+// taxonomyConceptResult holds one concept's quarterly values plus the period
+// metadata maps (filing date and period start) returned by fetchConcept.
+type taxonomyConceptResult struct {
+	data         map[string]float64
+	filingDates  map[string]string // period-end → filing date
+	periodStarts map[string]string // period-end → period start date
+	err          error
+}
+
+// fetchTaxonomyQuarterly runs the EPS + revenue concept lookups for one
+// taxonomy ("us-gaap" or "ifrs-full") concurrently and returns both results.
+// The concept names and broker-gross-revenue path are taxonomy-specific.
+func (c *Client) fetchTaxonomyQuarterly(cik int, taxonomy string) (epsRes, revRes taxonomyConceptResult) {
+	epsCh := make(chan taxonomyConceptResult, 1)
+	revCh := make(chan taxonomyConceptResult, 1)
+
+	var epsConcepts, revConcepts []string
+	tryBrokerGross := false
+	switch taxonomy {
+	case "ifrs-full":
+		// IFRS filers tag diluted EPS under DilutedEarningsLossPerShare; some
+		// pre-2018 filings only have BasicEarningsLossPerShare.
+		epsConcepts = []string{"DilutedEarningsLossPerShare", "BasicEarningsLossPerShare"}
+		revConcepts = []string{"Revenue", "RevenueFromContractsWithCustomers"}
+	default:
+		epsConcepts = []string{"EarningsPerShareDiluted"}
+		// Many companies switched from "Revenues" to "RevenueFromContractWithCustomer..."
+		// when ASC 606 took effect (~2018). A concept is only accepted if it has data
+		// within the last 18 months — otherwise the old concept name silently wins
+		// and hides the current one (e.g. BSX, MCO).
+		revConcepts = []string{
+			"Revenues",
+			"RevenuesNetOfInterestExpense", // broker-dealers, banks (e.g. IBKR, GS, MS)
+			"RevenueFromContractWithCustomerExcludingAssessedTax",
+			"RevenueFromContractWithCustomerIncludingAssessedTax",
+			"SalesRevenueNet",
+			"SalesRevenueGoodsNet",
+		}
+		tryBrokerGross = true
+	}
+
+	go func() {
+		for _, name := range epsConcepts {
+			d, fd, ps, err := c.fetchConcept(cik, taxonomy, name)
+			if err == nil && len(d) > 0 {
+				epsCh <- taxonomyConceptResult{d, fd, ps, nil}
+				return
+			}
+		}
+		epsCh <- taxonomyConceptResult{nil, nil, nil, fmt.Errorf("no EPS concept found in %s", taxonomy)}
+	}()
+
+	go func() {
+		recentCutoff := time.Now().AddDate(-1, -6, 0)
+		for _, name := range revConcepts {
+			// Broker-dealers and banks: RevenuesNetOfInterestExpense is *net* revenue
+			// (gross interest income minus interest expense paid to customers, plus
+			// non-interest income). Yahoo Finance and most screeners report the *gross*
+			// figure — interest income + non-interest income — which produces a smaller
+			// P/S. Compute the gross sum per period and use it when available so our
+			// ratio matches what users see on comparison sites.
+			if tryBrokerGross && name == "RevenuesNetOfInterestExpense" {
+				if d, fd, ps, ok := c.fetchBrokerGrossRevenue(cik, recentCutoff); ok {
+					revCh <- taxonomyConceptResult{d, fd, ps, nil}
+					return
+				}
+			}
+
+			d, fd, ps, err := c.fetchConcept(cik, taxonomy, name)
+			if err != nil || len(d) == 0 {
+				continue
+			}
+			// Only use this concept if it has at least one period within 18 months.
+			hasRecent := false
+			for period := range d {
+				t, parseErr := time.Parse("2006-01-02", period)
+				if parseErr == nil && t.After(recentCutoff) {
+					hasRecent = true
+					break
+				}
+			}
+			if hasRecent {
+				revCh <- taxonomyConceptResult{d, fd, ps, nil}
+				return
+			}
+		}
+		revCh <- taxonomyConceptResult{nil, nil, nil, fmt.Errorf("no revenue concept found in %s", taxonomy)}
+	}()
+
+	return <-epsCh, <-revCh
+}
+
+// FetchQuarterlyActuals returns the last 5 quarters of EPS (diluted) and revenue
+// for a stock symbol, sourced directly from SEC XBRL filings.
+func (c *Client) FetchQuarterlyActuals(symbol string) ([]domain.QuarterActual, error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	epsRes, revRes := c.fetchTaxonomyQuarterly(cik, "us-gaap")
+
+	// Foreign Private Issuers (Canadian MJDS filers like BN, etc.) file under
+	// the ifrs-full taxonomy via 6-K / 40-F instead of 10-Q / 10-K. Retry there
+	// when us-gaap has nothing usable.
+	if len(epsRes.data) == 0 && len(revRes.data) == 0 {
+		if ie, ir := c.fetchTaxonomyQuarterly(cik, "ifrs-full"); len(ie.data) > 0 || len(ir.data) > 0 {
+			epsRes, revRes = ie, ir
+		}
+	}
+
+	if epsRes.err != nil && revRes.err != nil {
+		return nil, fmt.Errorf("no SEC data: %v | %v", epsRes.err, revRes.err)
+	}
+
+	// Merge EPS and revenue by period-end date.
+	// Use EPS filing dates as authoritative (EPS is always present in the 10-Q).
+	merged := make(map[string]*domain.QuarterActual)
+	for period, v := range epsRes.data {
+		if _, ok := merged[period]; !ok {
+			merged[period] = &domain.QuarterActual{Period: period}
+		}
+		merged[period].EPS = v
+		if fd, ok := epsRes.filingDates[period]; ok {
+			merged[period].FilingDate = fd
+		}
+		if ps, ok := epsRes.periodStarts[period]; ok {
+			merged[period].PeriodStart = ps
+		}
+	}
+	for period, v := range revRes.data {
+		if _, ok := merged[period]; !ok {
+			merged[period] = &domain.QuarterActual{Period: period}
+		}
+		merged[period].Revenue = v
+		// Fill FilingDate and PeriodStart from revenue if EPS didn't provide them.
+		if merged[period].FilingDate == "" {
+			if fd, ok := revRes.filingDates[period]; ok {
+				merged[period].FilingDate = fd
+			}
+		}
+		if merged[period].PeriodStart == "" {
+			if ps, ok := revRes.periodStarts[period]; ok {
+				merged[period].PeriodStart = ps
+			}
+		}
+	}
+
+	var sorted []domain.QuarterActual
+	for _, q := range merged {
+		sorted = append(sorted, *q)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Period < sorted[j].Period
+	})
+	// Keep 9 quarters: 5 to display + 4 prior-year quarters needed for YoY comparison.
+	if len(sorted) > 9 {
+		sorted = sorted[len(sorted)-9:]
+	}
+	return sorted, nil
+}
+
+// secConceptEntry is one data point from the XBRL concept API.
+type secConceptEntry struct {
+	Start string  `json:"start"` // fiscal period start date: "2024-07-01"
+	End   string  `json:"end"`   // fiscal period end date: "2024-09-28"
+	Form  string  `json:"form"`  // "10-Q" or "10-K"
+	Filed string  `json:"filed"` // filing date: "2024-11-01"
+	Val   float64 `json:"val"`
+}
+
+// taxonomyForms returns the set of SEC filing forms whose XBRL facts are
+// accepted, plus the subset that count as annual reports (for Q4 derivation).
+func taxonomyForms(taxonomy string) (accepted, annuals map[string]bool) {
+	switch taxonomy {
+	case "ifrs-full":
+		// Canadian MJDS filers (e.g. BN) use 40-F for annuals and 6-K for
+		// interim reports. 40-F/A amendments are also accepted; their later
+		// filed-date will win the per-period dedup.
+		accepted = map[string]bool{"6-K": true, "40-F": true, "40-F/A": true}
+		annuals = map[string]bool{"40-F": true, "40-F/A": true}
+	default:
+		accepted = map[string]bool{"10-Q": true, "10-K": true}
+		annuals = map[string]bool{"10-K": true}
+	}
+	return
+}
+
+// fetchConcept fetches quarterly values for one SEC XBRL concept in the given
+// taxonomy ("us-gaap" or "ifrs-full"). Returns: values map (period-end → value),
+// filing dates map (period-end → filed date), period starts map (period-end →
+// period start date).
+func (c *Client) fetchConcept(cik int, taxonomy, concept string) (map[string]float64, map[string]string, map[string]string, error) {
+	url := fmt.Sprintf(
+		"https://data.sec.gov/api/xbrl/companyconcept/CIK%010d/%s/%s.json",
+		cik, taxonomy, concept,
+	)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	req.Header.Set("User-Agent", secUserAgent)
+	c.rl.Take()
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("HTTP GET: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil, nil, fmt.Errorf("concept %s not found (404)", concept)
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, nil, nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body)[:min(80, len(body))])
+	}
+
+	var raw struct {
+		Units map[string][]secConceptEntry `json:"units"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, nil, nil, fmt.Errorf("decode: %w", err)
+	}
+
+	acceptedForms, annualForms := taxonomyForms(taxonomy)
+
+	// Iterate every unit bucket. Most concepts only publish under one (USD for
+	// revenue, USD/shares for EPS), but some filers — COST, for example —
+	// publish EarningsPerShareDiluted under both "pure" (legacy) and
+	// "USD/shares" (current). Selecting only the first unit non-deterministically
+	// drops the bulk of the data. The "most-recently-filed wins" dedup below
+	// handles any per-period collisions safely because all unit variants of the
+	// same per-share or currency concept carry the same numeric value.
+	result := make(map[string]float64)
+	filingDates := make(map[string]string)  // period-end → most recent filed date
+	periodStarts := make(map[string]string) // period-end → period start date
+
+	type periodRec struct {
+		start time.Time
+		end   time.Time
+		filed string
+		val   float64
+	}
+	var annuals []periodRec
+	var halves []periodRec // 6-month YTD entries (IFRS half-year reporters)
+
+	for _, entries := range raw.Units {
+		for _, e := range entries {
+			if !acceptedForms[e.Form] {
+				continue
+			}
+			if e.Start == "" || e.End == "" {
+				continue
+			}
+			start, err1 := time.Parse("2006-01-02", e.Start)
+			end, err2 := time.Parse("2006-01-02", e.End)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			days := int(end.Sub(start).Hours() / 24)
+
+			// Only accept filings where the filing date is within 150 days of the
+			// period end (prevents comparative re-filings from corrupting dates).
+			filedDate, ferr := time.Parse("2006-01-02", e.Filed)
+			if ferr != nil {
+				continue
+			}
+			if int(filedDate.Sub(end).Hours()/24) > 150 {
+				continue
+			}
+
+			switch {
+			case days >= 75 && days <= 105:
+				// Single-quarter entry: keep the most recently filed version.
+				if prev, ok := filingDates[e.End]; !ok || e.Filed > prev {
+					result[e.End] = e.Val
+					filingDates[e.End] = e.Filed
+					periodStarts[e.End] = e.Start
+				}
+			case days >= 175 && days <= 195:
+				// Half-year YTD entry — used to derive Q1 = H1 − Q2 below for
+				// IFRS half-year reporters (e.g. BN, which does not file
+				// standalone Q1 or Q3 quarters with the SEC).
+				halves = append(halves, periodRec{start, end, e.Filed, e.Val})
+			case days >= 350 && days <= 380 && annualForms[e.Form]:
+				// Full-year entry: used for Q4 derivation below.
+				annuals = append(annuals, periodRec{start, end, e.Filed, e.Val})
+			}
+		}
+	}
+
+	// Derive Q1 = H1 − Q2 from half-year YTD entries paired with the standalone
+	// Q2 quarter. Each H1 has start = fiscal year start; its matching Q2 has
+	// end = H1.end and start = H1.start + ~3 months.
+	for _, h := range halves {
+		// Q1 end = H1.start + 3 months − 1 day (approximately). We look up the
+		// matching Q2 by checking every existing quarter whose end equals H1.end.
+		q2End := h.end.Format("2006-01-02")
+		q2Val, hasQ2 := result[q2End]
+		if !hasQ2 {
+			continue
+		}
+		q2StartStr, hasQ2Start := periodStarts[q2End]
+		if !hasQ2Start {
+			continue
+		}
+		q2Start, err := time.Parse("2006-01-02", q2StartStr)
+		if err != nil {
+			continue
+		}
+		// Q2 must start strictly after H1 starts (Q2.start > H1.start).
+		if !q2Start.After(h.start) {
+			continue
+		}
+		q1End := q2Start.AddDate(0, 0, -1).Format("2006-01-02")
+		if _, exists := result[q1End]; exists {
+			continue // Q1 already directly tagged
+		}
+		result[q1End] = h.val - q2Val
+		filingDates[q1End] = h.filed
+		periodStarts[q1End] = h.start.Format("2006-01-02")
+	}
+
+	// Derive Q4 = Annual − (Q1 + Q2 + Q3) for each fiscal year where Q4 is
+	// not already present as a directly-tagged quarterly period.
+	// This is necessary for calendar-year reporters (e.g. NFLX, MSFT) whose
+	// Q4 appears only as an annual total in the 10-K, never as a 10-Q.
+	for _, ann := range annuals {
+		yearEnd := ann.end.Format("2006-01-02")
+		if _, exists := result[yearEnd]; exists {
+			continue // Q4 was explicitly tagged; no derivation needed
+		}
+		// Find the three quarters (Q1, Q2, Q3) that fall within this fiscal year:
+		// their start must be >= fiscal year start and their end must be < fiscal year end.
+		var withinYear []struct {
+			endDate string
+			val     float64
+		}
+		for endStr, val := range result {
+			psStr := periodStarts[endStr]
+			if psStr == "" {
+				continue
+			}
+			ps, err1 := time.Parse("2006-01-02", psStr)
+			pe, err2 := time.Parse("2006-01-02", endStr)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			if (ps.Equal(ann.start) || ps.After(ann.start)) && pe.Before(ann.end) {
+				withinYear = append(withinYear, struct {
+					endDate string
+					val     float64
+				}{endStr, val})
+			}
+		}
+		if len(withinYear) != 3 {
+			continue // need exactly Q1+Q2+Q3 to derive Q4
+		}
+
+		var sumQ1Q2Q3 float64
+		var latestQEnd time.Time
+		for _, q := range withinYear {
+			sumQ1Q2Q3 += q.val
+			qe, _ := time.Parse("2006-01-02", q.endDate)
+			if qe.After(latestQEnd) {
+				latestQEnd = qe
+			}
+		}
+		result[yearEnd] = ann.val - sumQ1Q2Q3
+		filingDates[yearEnd] = ann.filed
+		periodStarts[yearEnd] = latestQEnd.AddDate(0, 0, 1).Format("2006-01-02")
+	}
+
+	return result, filingDates, periodStarts, nil
+}
+
+// fetchBrokerGrossRevenue returns per-quarter gross revenue for broker-dealers/banks,
+// computed as InterestIncomeOperating + NoninterestIncome (falling back to
+// InterestAndDividendIncomeOperating for banks that use that tag). Only periods
+// present in both underlying concepts are returned. `ok` is false if either
+// concept is missing, unavailable, or has no period within the recency cutoff.
+func (c *Client) fetchBrokerGrossRevenue(cik int, recentCutoff time.Time) (map[string]float64, map[string]string, map[string]string, bool) {
+	var ii map[string]float64
+	var iiFD, iiPS map[string]string
+	for _, name := range []string{"InterestIncomeOperating", "InterestAndDividendIncomeOperating"} {
+		d, fd, ps, err := c.fetchConcept(cik, "us-gaap", name)
+		if err == nil && len(d) > 0 {
+			ii, iiFD, iiPS = d, fd, ps
+			break
+		}
+	}
+	if len(ii) == 0 {
+		return nil, nil, nil, false
+	}
+
+	ni, niFD, _, err := c.fetchConcept(cik, "us-gaap", "NoninterestIncome")
+	if err != nil || len(ni) == 0 {
+		return nil, nil, nil, false
+	}
+
+	merged := make(map[string]float64)
+	mergedFD := make(map[string]string)
+	mergedPS := make(map[string]string)
+	for period, iv := range ii {
+		nv, ok := ni[period]
+		if !ok {
+			continue
+		}
+		merged[period] = iv + nv
+		// Use the later of the two filing dates for this period.
+		if iiFD[period] > niFD[period] {
+			mergedFD[period] = iiFD[period]
+		} else {
+			mergedFD[period] = niFD[period]
+		}
+		mergedPS[period] = iiPS[period]
+	}
+	if len(merged) == 0 {
+		return nil, nil, nil, false
+	}
+
+	hasRecent := false
+	for period := range merged {
+		t, perr := time.Parse("2006-01-02", period)
+		if perr == nil && t.After(recentCutoff) {
+			hasRecent = true
+			break
+		}
+	}
+	if !hasRecent {
+		return nil, nil, nil, false
+	}
+	return merged, mergedFD, mergedPS, true
+}
+
+// ── Insider trading (Form 4) ──────────────────────────────────────────────────
+
+// secSubmissionsResponse is the relevant slice of the SEC submissions JSON.
+// The top-level fields (Name, SIC, SICDescription) come from the entity metadata
+// returned alongside the filings list.
+type secSubmissionsResponse struct {
+	Name           string `json:"name"`           // legal entity name, e.g. "Apple Inc."
+	SIC            string `json:"sic"`            // 4-digit SIC code as string, e.g. "3571"
+	SICDescription string `json:"sicDescription"` // e.g. "ELECTRONIC COMPUTERS"
+	Filings        struct {
+		Recent struct {
+			Form            []string `json:"form"`
+			FilingDate      []string `json:"filingDate"`
+			AccessionNumber []string `json:"accessionNumber"`
+			PrimaryDocument []string `json:"primaryDocument"`
+			Items           []string `json:"items"`                 // e.g. "2.02,9.01"
+			PrimaryDocDesc  []string `json:"primaryDocDescription"` // e.g. "EARNINGS RELEASE"
+		} `json:"recent"`
+	} `json:"filings"`
+}
+
+// FetchEntitySIC returns the SIC code (numeric) and its description for the given
+// symbol. Used for sector-based peer matching.
+func (c *Client) FetchEntitySIC(symbol string) (sic int, sicDesc string, err error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return 0, "", err
+	}
+	subs, err := c.fetchSubmissions(cik)
+	if err != nil {
+		return 0, "", err
+	}
+	v, _ := strconv.Atoi(subs.SIC)
+	return v, subs.SICDescription, nil
+}
+
+// ── 8-K document parsing helpers ─────────────────────────────────────────────
+
+var (
+	re8KStyleScript = regexp.MustCompile(`(?si)<(style|script)[^>]*>.*?</(style|script)>`)
+	re8KHTMLTag     = regexp.MustCompile(`<[^>]{0,500}>`)
+	re8KSpaces      = regexp.MustCompile(`[ \t]{2,}`)
+)
+
+// stripHTMLText removes HTML tags and decodes common entities, returning a
+// normalised single-line string suitable for text analysis.
+func stripHTMLText(raw string) string {
+	s := re8KStyleScript.ReplaceAllString(raw, " ")
+	s = re8KHTMLTag.ReplaceAllString(s, " ")
+	for _, pair := range [][2]string{
+		{"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"},
+		{"&nbsp;", " "}, {"&#160;", " "}, {"&quot;", `"`}, {"&#39;", "'"},
+	} {
+		s = strings.ReplaceAll(s, pair[0], pair[1])
+	}
+	s = re8KSpaces.ReplaceAllString(s, " ")
+	var lines []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) > 4 {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, " ")
+}
+
+// extract8KSnippet locates the start of the substantive press-release body
+// (skipping the SEC cover-page header) and returns up to 400 characters.
+func extract8KSnippet(text string) string {
+	lower := strings.ToLower(text)
+	start := 0
+	for _, marker := range []string{
+		"for immediate release", "press release",
+		"item 2.02", "item 1.01", "item 5.01", "item 5.02", "item 8.01",
+	} {
+		if idx := strings.Index(lower, marker); idx >= 0 {
+			start = idx + len(marker)
+			break
+		}
+	}
+	// No marker: skip the SEC cover page (~500 chars of boilerplate).
+	if start == 0 && len(text) > 600 {
+		start = 500
+	}
+	snippet := strings.TrimSpace(text[start:])
+	const maxLen = 400
+	if len(snippet) > maxLen {
+		snippet = snippet[:maxLen]
+		if i := strings.LastIndex(snippet, " "); i > maxLen-60 {
+			snippet = snippet[:i]
+		}
+		snippet += "…"
+	}
+	return snippet
+}
+
+var (
+	positiveKeywords = []string{
+		"increased", "exceeded", "record", "raised guidance", "strong", "growth",
+		"beat", "outperformed", "higher", "improved", "expanded", "accelerated",
+		"profitable", "gain", "awarded", "approved", "successfully", "milestone",
+		"ahead of", "above expectations", "dividend", "buyback", "repurchase",
+		"new contract", "revenue grew", "partnership",
+	}
+	negativeKeywords = []string{
+		"decreased", "decline", "below", "withdrew", "impairment", "net loss",
+		"missed", "restructuring", "terminated", "bankruptcy", "receivership",
+		"weaker", "reduced guidance", "lowered", "shortfall", "headwind",
+		"investigation", "lawsuit", "violation", "penalty", "fine", "default",
+		"restatement", "material weakness", "going concern", "adverse",
+		"disappointing", "below expectations",
+	}
+)
+
+// scoreSentiment returns "Positive", "Negative", or "Neutral" based on a
+// keyword count over the lower-cased filing text.
+func scoreSentiment(text string) string {
+	lower := strings.ToLower(text)
+	pos, neg := 0, 0
+	for _, kw := range positiveKeywords {
+		if strings.Contains(lower, kw) {
+			pos++
+		}
+	}
+	for _, kw := range negativeKeywords {
+		if strings.Contains(lower, kw) {
+			neg++
+		}
+	}
+	switch {
+	case pos > neg+1:
+		return "Positive"
+	case neg > pos+1:
+		return "Negative"
+	default:
+		return "Neutral"
+	}
+}
+
+// fetchEventDetails downloads the primary 8-K document (capped at 32 KB),
+// strips HTML, and returns a text snippet plus a sentiment label.
+// Returns empty strings on any failure — callers treat this as best-effort.
+func (c *Client) fetchEventDetails(cik int, accNum, docFile string) (snippet, sentiment string) {
+	if accNum == "" || docFile == "" {
+		return "", ""
+	}
+	docURL := fmt.Sprintf(
+		"https://www.sec.gov/Archives/edgar/data/%d/%s/%s",
+		cik, accNum, docFile,
+	)
+	req, err := http.NewRequest("GET", docURL, nil)
+	if err != nil {
+		return "", ""
+	}
+	req.Header.Set("User-Agent", secUserAgent)
+	c.rl.Take()
+	resp, err := c.httpClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return "", ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+	if err != nil {
+		return "", ""
+	}
+	text := stripHTMLText(string(body))
+	return extract8KSnippet(text), scoreSentiment(text)
+}
+
+// form4Doc is the XML structure of an SEC Form 4 filing.
+type form4Doc struct {
+	XMLName            xml.Name `xml:"ownershipDocument"`
+	NonDerivativeTable struct {
+		Transactions []form4Txn `xml:"nonDerivativeTransaction"`
+	} `xml:"nonDerivativeTable"`
+}
+
+type form4Txn struct {
+	Coding struct {
+		Code string `xml:"transactionCode"`
+	} `xml:"transactionCoding"`
+	Amounts struct {
+		Shares struct {
+			Value string `xml:"value"`
+		} `xml:"transactionShares"`
+		Price struct {
+			Value string `xml:"value"`
+		} `xml:"transactionPricePerShare"`
+	} `xml:"transactionAmounts"`
+}
+
+// fetchSubmissions fetches the SEC submissions JSON for a given CIK.
+// Results are cached in memory for the lifetime of a run — the same CIK is
+// often requested 4+ times (SIC lookup, actuals, announcement dates, insider,
+// material events) and the response is immutable within a single run.
+func (c *Client) fetchSubmissions(cik int) (*secSubmissionsResponse, error) {
+	c.subsCacheMu.Lock()
+	if cached, ok := c.subsCache[cik]; ok {
+		c.subsCacheMu.Unlock()
+		return cached, nil
+	}
+	c.subsCacheMu.Unlock()
+
+	subsURL := fmt.Sprintf("https://data.sec.gov/submissions/CIK%010d.json", cik)
+	req, _ := http.NewRequest("GET", subsURL, nil)
+	req.Header.Set("User-Agent", secUserAgent)
+	c.rl.Take()
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("submissions fetch: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		hint := ""
+		if resp.StatusCode == http.StatusTooManyRequests {
+			hint = " (SEC rate limit — wait 30 s or override with SEC_USER_AGENT env var)"
+		}
+		return nil, fmt.Errorf("submissions HTTP %d%s", resp.StatusCode, hint)
+	}
+	var subs secSubmissionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&subs); err != nil {
+		return nil, fmt.Errorf("submissions decode: %w", err)
+	}
+
+	c.subsCacheMu.Lock()
+	if c.subsCache != nil {
+		c.subsCache[cik] = &subs
+	}
+	c.subsCacheMu.Unlock()
+	return &subs, nil
+}
+
+// FetchEarningsAnnouncementDates returns a map of period-end-date → 8-K filing date
+// for the given quarters. Companies file an 8-K (Item 2.02) the same day they
+// release earnings, which precedes the 10-Q by several days. The 8-K date is the
+// correct proxy for when the market first saw the results.
+func (c *Client) FetchEarningsAnnouncementDates(symbol string, quarters []domain.QuarterActual) (map[string]string, error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
+	}
+	subs, err := c.fetchSubmissions(cik)
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect original 8-K filing dates only (not 8-K/A amendments, which can be dated
+	// months after the original and would corrupt the window lookup).
+	var eightKDates []string
+	r := subs.Filings.Recent
+	for i, form := range r.Form {
+		if form == "8-K" {
+			eightKDates = append(eightKDates, r.FilingDate[i])
+		}
+	}
+	sort.Strings(eightKDates) // oldest → newest
+
+	result := make(map[string]string)
+	for _, q := range quarters {
+		if q.FilingDate == "" || q.Period == "" {
+			continue
+		}
+		// Earnings 8-Ks are filed BEFORE (or on the same day as) the 10-Q.
+		// Using filingDate+2 as windowEnd could pick up post-filing 8-Ks (investor
+		// events, executive changes) filed in the days after the 10-Q, causing two
+		// quarters to share the same wrong announcement date.
+		windowStart := dateAddDays(q.Period, 14)
+		windowEnd := q.FilingDate // 8-K must be filed on or before the 10-Q
+
+		// Take the last 8-K in the window (closest to 10-Q filing = earnings release).
+		var best string
+		for _, d := range eightKDates {
+			if d >= windowStart && d <= windowEnd {
+				best = d
+			}
+		}
+		if best != "" {
+			result[q.Period] = best
+		}
+	}
+	return result, nil
+}
+
+// item8KLabel returns a human-readable label for the most significant item in a
+// comma-separated SEC 8-K items string. Items are evaluated in priority order
+// so that a filing with both "2.02,9.01" surfaces as "Earnings Release" rather
+// than the less-informative "Financial Statements".
+func item8KLabel(items string) string {
+	priority := []struct {
+		item  string
+		label string
+	}{
+		{"1.03", "Bankruptcy/Receivership"},
+		{"1.01", "Material Agreement"},
+		{"1.02", "Agreement Terminated"},
+		{"2.01", "Asset Acquisition/Disposal"},
+		{"3.01", "Rating Agency Action"},
+		{"4.01", "Auditor Change"},
+		{"5.01", "Change in Control"},
+		{"5.02", "Director/Officer Change"},
+		{"5.03", "Charter Amendment"},
+		{"5.07", "Stockholder Vote"},
+		{"2.03", "Off-Balance-Sheet Arrangement"},
+		{"2.04", "Triggering Events"},
+		{"2.02", "Earnings Release"},
+		{"7.01", "Regulation FD Disclosure"},
+		{"8.01", "Other Events"},
+		{"9.01", "Financial Statements"},
+	}
+	for _, p := range priority {
+		for _, part := range strings.Split(items, ",") {
+			if strings.TrimSpace(part) == p.item {
+				return p.label
+			}
+		}
+	}
+	if items != "" {
+		return "Item " + strings.TrimSpace(strings.SplitN(items, ",", 2)[0])
+	}
+	return "8-K Filing"
+}
+
+// FetchMaterialEvents returns material 8-K events filed since `since`.
+// Excludes 8-K/A amendments and filings whose only item is "9.01".
+// For each event the 8-K document is fetched concurrently (up to 3 at a time)
+// to extract a text snippet and keyword-based sentiment. Returns at most 10 events.
+func (c *Client) FetchMaterialEvents(symbol string, since time.Time) ([]domain.MaterialEvent, error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
+	}
+	subs, err := c.fetchSubmissions(cik)
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := since.Format("2006-01-02")
+	r := subs.Filings.Recent
+
+	type rawEvent struct {
+		domain.MaterialEvent
+		accNum  string
+		docFile string
+	}
+	var raw []rawEvent
+
+	for i, form := range r.Form {
+		if form != "8-K" {
+			continue
+		}
+		if i >= len(r.FilingDate) {
+			break
+		}
+		date := r.FilingDate[i]
+		if date < cutoff {
+			continue
+		}
+		items := ""
+		if i < len(r.Items) {
+			items = strings.TrimSpace(r.Items[i])
+		}
+		// Skip filings that only have "9.01" (standalone financial exhibit).
+		if items == "9.01" || items == "" {
+			continue
+		}
+		accNum := ""
+		if i < len(r.AccessionNumber) {
+			accNum = strings.ReplaceAll(r.AccessionNumber[i], "-", "")
+		}
+		docFile := ""
+		if i < len(r.PrimaryDocument) {
+			docFile = path.Base(r.PrimaryDocument[i])
+		}
+		docDesc := ""
+		if i < len(r.PrimaryDocDesc) {
+			docDesc = strings.TrimSpace(r.PrimaryDocDesc[i])
+		}
+		raw = append(raw, rawEvent{
+			MaterialEvent: domain.MaterialEvent{
+				Date:    date,
+				Items:   items,
+				Label:   item8KLabel(items),
+				DocDesc: docDesc,
+			},
+			accNum:  accNum,
+			docFile: docFile,
+		})
+		if len(raw) >= 10 {
+			break
+		}
+	}
+
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	// Fetch each 8-K document concurrently to extract snippet + sentiment.
+	events := make([]domain.MaterialEvent, len(raw))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 3)
+	for i, re := range raw {
+		wg.Add(1)
+		go func(idx int, rv rawEvent) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			ev := rv.MaterialEvent
+			ev.Snippet, ev.Sentiment = c.fetchEventDetails(cik, rv.accNum, rv.docFile)
+			events[idx] = ev
+		}(i, re)
+	}
+	wg.Wait()
+	return events, nil
+}
+
+// dateAddDays adds n days to a YYYY-MM-DD string, returning the result as YYYY-MM-DD.
+func dateAddDays(dateStr string, n int) string {
+	t, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return dateStr
+	}
+	return t.AddDate(0, 0, n).Format("2006-01-02")
+}
+
+// FetchInsiderActivity returns open-market buy/sell activity from Form 4 filings
+// filed on or after `since`.
+func (c *Client) FetchInsiderActivity(symbol string, since time.Time) (*domain.InsiderSummary, error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Fetch submissions JSON to get list of recent Form 4 filings.
+	subs, err := c.fetchSubmissions(cik)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Filter to Form 4 / 4/A filed since the cutoff date.
+	cutoff := since.Format("2006-01-02")
+	type filing struct{ accNum, docFile string }
+	var filings []filing
+	r := subs.Filings.Recent
+	for i, form := range r.Form {
+		if i >= len(r.FilingDate) || i >= len(r.AccessionNumber) || i >= len(r.PrimaryDocument) {
+			break
+		}
+		if (form == "4" || form == "4/A") && r.FilingDate[i] >= cutoff {
+			filings = append(filings, filing{
+				accNum:  strings.ReplaceAll(r.AccessionNumber[i], "-", ""),
+				docFile: path.Base(r.PrimaryDocument[i]),
+			})
+		}
+	}
+	if len(filings) == 0 {
+		return &domain.InsiderSummary{Activity: "No Activity"}, nil
+	}
+
+	// 3. Fetch and parse each Form 4 XML concurrently (SEC rate limit: ≤10 req/s).
+	type txnSummary struct {
+		buyShares, sellShares int64
+		buyValue, sellValue   float64
+	}
+	results := make([]txnSummary, len(filings))
+	sem := make(chan struct{}, 5)
+	var wg sync.WaitGroup
+	for idx, f := range filings {
+		wg.Add(1)
+		go func(i int, fil filing) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			xmlURL := fmt.Sprintf(
+				"https://www.sec.gov/Archives/edgar/data/%d/%s/%s",
+				cik, fil.accNum, fil.docFile,
+			)
+			xreq, _ := http.NewRequest("GET", xmlURL, nil)
+			xreq.Header.Set("User-Agent", secUserAgent)
+			c.rl.Take()
+			xresp, err := c.httpClient.Do(xreq)
+			if err != nil {
+				return
+			}
+			defer xresp.Body.Close()
+			if xresp.StatusCode != http.StatusOK {
+				return
+			}
+			var doc form4Doc
+			if err := xml.NewDecoder(xresp.Body).Decode(&doc); err != nil {
+				return
+			}
+			for _, t := range doc.NonDerivativeTable.Transactions {
+				code := strings.TrimSpace(t.Coding.Code)
+				if code != "P" && code != "S" {
+					continue // ignore awards, exercises, tax-withholding, etc.
+				}
+				shares, _ := strconv.ParseInt(strings.TrimSpace(t.Amounts.Shares.Value), 10, 64)
+				price, _ := strconv.ParseFloat(strings.TrimSpace(t.Amounts.Price.Value), 64)
+				value := float64(shares) * price
+				if code == "P" {
+					results[i].buyShares += shares
+					results[i].buyValue += value
+				} else {
+					results[i].sellShares += shares
+					results[i].sellValue += value
+				}
+			}
+		}(idx, f)
+	}
+	wg.Wait()
+
+	// 4. Aggregate and classify.
+	sum := &domain.InsiderSummary{FilingCount: len(filings)}
+	for _, r := range results {
+		sum.BuyShares += r.buyShares
+		sum.BuyValue += r.buyValue
+		sum.SellShares += r.sellShares
+		sum.SellValue += r.sellValue
+	}
+	switch {
+	case sum.BuyValue > sum.SellValue:
+		sum.Activity = "Net Buyer"
+	case sum.SellValue > sum.BuyValue:
+		sum.Activity = "Net Seller"
+	default:
+		sum.Activity = "No Activity"
+	}
+	return sum, nil
+}

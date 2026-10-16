@@ -86,7 +86,7 @@ The exchange is auto-detected from the suffix when `--symbol` contains one. Use 
 
 ## Data Sources
 
-### 1. Nasdaq API (`us_calendar.go`) — US only
+### 1. Nasdaq API (`internal/source/nasdaq`) — US only
 **What it provides:**
 - Earnings calendar: symbol, company name, earnings date, timing (BMO/AMC), market cap
 - Current EPS consensus estimate and last-year EPS for the upcoming quarter
@@ -97,7 +97,7 @@ The exchange is auto-detected from the suffix when `--symbol` contains one. Use 
 
 ---
 
-### 2. SEC EDGAR (`sec.go`) — US only
+### 2. SEC EDGAR (`internal/source/sec`) — US only
 **What it provides:**
 - **XBRL quarterly actuals** — reported revenue and EPS for the last 8 quarters, sourced from 10-Q/10-K XBRL filings
 - **8-K announcement dates** — the date each quarterly earnings press release was filed (more accurate than 10-Q filing dates for computing earnings reactions)
@@ -110,7 +110,7 @@ The exchange is auto-detected from the suffix when `--symbol` contains one. Use 
 
 ---
 
-### 3. Finnhub (`finnhub.go` / `finnhub_financials.go` / `intl_calendar.go`) — US + International
+### 3. Finnhub (`internal/source/finnhub`) — US + International
 **What it provides:**
 - **MSPR** (Monthly Share Purchase Ratio) — insider buy/sell balance over the last 3 months (all exchanges)
 - **International earnings calendar** — `GET /calendar/earnings` filtered by exchange suffix (LSE/FSE/Euronext)
@@ -122,7 +122,7 @@ The exchange is auto-detected from the suffix when `--symbol` contains one. Use 
 
 ---
 
-### 4. Yahoo Finance (`options.go` / `yahoo_price.go`)
+### 4. Yahoo Finance (`internal/source/yahoo`)
 **What it provides:**
 - **Options chain** (US-focused) — full chain for nearest post-earnings expiry; IV, OI, volume per contract
 - **International price history** — `GET /v8/finance/chart/{symbol}?interval=1d&range=2y` for non-US tickers (`.L`, `.DE`, `.PA` etc.)
@@ -132,7 +132,7 @@ The exchange is auto-detected from the suffix when `--symbol` contains one. Use 
 
 ---
 
-### 5. StockAnalysis.com (`stockanalysis.go`) — US + some international
+### 5. StockAnalysis.com (`internal/source/stockanalysis`) — US + some international
 **What it provides:**
 - Revenue consensus estimate for the upcoming quarter
 - Same-quarter-last-year revenue (for YoY computation)
@@ -143,7 +143,7 @@ The exchange is auto-detected from the suffix when `--symbol` contains one. Use 
 
 ---
 
-### 6. Finviz (`finviz.go`) — US only
+### 6. Finviz (`internal/source/finviz`) — US only
 **What it provides:**
 - Institutional ownership percentage (% of shares held by institutions)
 - Quarter-over-quarter change in institutional ownership
@@ -154,7 +154,7 @@ The exchange is auto-detected from the suffix when `--symbol` contains one. Use 
 
 ---
 
-### 7. Macro Calendar (`macro.go`)
+### 7. Macro Calendar (`internal/macro`)
 **What it provides:**
 - **US:** FOMC rate decisions, FOMC minutes, Non-Farm Payrolls, CPI, PPI releases (2025–2026)
 - **LSE:** BoE Monetary Policy Committee rate decisions (2025–2026)
@@ -162,7 +162,7 @@ The exchange is auto-detected from the suffix when `--symbol` contains one. Use 
 - US macro events (FOMC/NFP/CPI) are always included even for non-US exchanges — they move global markets
 - Shown as context when an event falls within ±2 days of the earnings date or a historical reaction day
 
-**Method:** Hardcoded (BLS blocks programmatic scraping via WAF). Update the date slices in `macro.go` each January.
+**Method:** Hardcoded (BLS blocks programmatic scraping via WAF). Update the date slices in `internal/macro/macro.go` each January.
 
 ---
 
@@ -485,6 +485,6 @@ go run . --symbol AAPL --output json | jq '.[] | .earnings_reactions[] | {period
 
 ## Maintenance
 
-- **Macro calendar:** Update the date slices in `macro.go` each January with the new year's FOMC, CPI, PPI, and NFP dates. Sources: [federalreserve.gov](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm) and [bls.gov/schedule](https://www.bls.gov/schedule/).
+- **Macro calendar:** Update the date slices in `internal/macro/macro.go` each January with the new year's FOMC, CPI, PPI, and NFP dates. Sources: [federalreserve.gov](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm) and [bls.gov/schedule](https://www.bls.gov/schedule/).
 - **SEC ticker map cache:** Cached in `~/.cache/quarterly_results/sec_tickers.json`. Delete this file to force a refresh if you see "symbol not in SEC ticker map" errors.
-- **Finviz HTML changes:** If institutional data stops working, the CSS class names in the `finvizFieldRe` regex in `finviz.go` may need updating.
+- **Finviz HTML changes:** If institutional data stops working, the CSS class names in the `finvizFieldRe` regex in `internal/source/finviz/finviz.go` may need updating.
