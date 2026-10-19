@@ -135,6 +135,8 @@ func writeStockCard(w io.Writer, r domain.EarningsResult) {
 	if r.LLMRating != nil {
 		WriteLLMRating(w, r.LLMRating)
 	}
+	writeDrift(w, r.DriftRecommendation, r.DriftFeatures)
+	writePostRelease(w, r.PostRelease)
 
 	// ── EPS & Revenue ───────────────────────────────────────────────────────
 	epsEst := "N/A"
@@ -403,6 +405,51 @@ func writeStockCard(w io.Writer, r domain.EarningsResult) {
 
 // writeRecommendation prints a compact 2-line directional rating with up to
 // three top-contributing reason strings.
+// writePostRelease renders Signal 1 (at the release) and Signal 2 (at the open).
+func writePostRelease(w io.Writer, p *domain.PostRelease) {
+	if p == nil {
+		return
+	}
+	if s := p.Signal1; s != nil {
+		mark := map[string]string{"Positive": "▲", "Negative": "▼"}[s.Label]
+		if mark == "" {
+			mark = "•"
+		}
+		fmt.Fprintf(w, "Signal 1 %s %-9s  surprise %+.1f%% → reaction day up %.0f%% of the time (n=%d, mean %+.2f%%)\n",
+			mark, s.Label, s.SurprisePct, s.PUp*100, s.N, s.MeanReactionPct)
+	}
+	if s := p.Signal2; s != nil {
+		hit := "—"
+		if s.HistHit != nil {
+			hit = fmt.Sprintf("%.0f%%", *s.HistHit*100)
+		}
+		fmt.Fprintf(w, "Signal 2   %-13s decile %d/10 at the open (gap %+.1f%%); decile history: mean %+.2f%% vs SPY, beat SPY %s\n",
+			s.Lean, s.Decile, s.GapPct, s.HistMeanPct, hit)
+	} else if p.Signal1 != nil {
+		fmt.Fprintf(w, "Signal 2   pending — needs the reaction-day open\n")
+	}
+}
+
+// writeDrift renders the post-earnings drift prediction, made after the
+// reaction-day close, for a report that was just released.
+func writeDrift(w io.Writer, rec *domain.Recommendation, f *domain.DriftFeatures) {
+	if rec == nil || f == nil {
+		return
+	}
+	mark := "•"
+	switch rec.Label {
+	case "Positive":
+		mark = "▲"
+	case "Negative":
+		mark = "▼"
+	}
+	fmt.Fprintf(w, "Drift    %s %-9s  Score %+6.1f  Confidence %.0f%%  (after the %s reaction; next 5–20 trading days vs sector)\n",
+		mark, rec.Label, rec.Score, rec.Confidence*100, f.ReactionDay)
+	for _, reason := range rec.TopReasons {
+		fmt.Fprintf(w, "         %s\n", reason)
+	}
+}
+
 func writeRecommendation(w io.Writer, rec *domain.Recommendation) {
 	mark := "•"
 	switch rec.Label {

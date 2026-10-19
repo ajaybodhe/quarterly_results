@@ -42,6 +42,64 @@ go run . --symbol AAPL --gex
 
 ---
 
+## Post-release signals
+
+**Why.** We set out to apply Zhu, Liu & Sheng, *"Post-Earnings-Announcement Drift Prediction: Leveraging
+Postevent Investor Responses with Multitask Learning"*, Information Systems Research 36(4), 2025
+([doi:10.1287/isre.2022.0358](https://doi.org/10.1287/isre.2022.0358)). The paper predicts the drift *after*
+an earnings reaction with a multitask transformer that uses investor responses as auxiliary training labels.
+Before building that, we rebuilt the test on our own point-in-time data: ~31k earnings events, ~950 US stocks
+over $5B, 2016–2026 (SEC filings, Yahoo prices, Nasdaq consensus), scored with walk-forward evaluation only.
+**Drift turned out to carry almost no signal** in this universe (IC 0.01–0.03, unstable year to year).
+So we dropped it and did not build the multitask model. What does work happens *around* the release:
+- **Signal 1, at the release:** the consensus EPS surprise predicts the reaction day (2022–26: IC 0.23,
+  58.6% sign accuracy). It tells you whether the market will like the print.
+- **Signal 2, at the open:** the opening gap partly reverts toward the surprise during the day. A
+  gradient-boosted model on surprise, gap and context predicts open→close minus SPY (IC 0.05). In its
+  2025–26 out-of-sample calibration only the top decile paid: +1.06% average, 54% hit rate, before costs.
+- **Text tested, not used:** press-release embeddings (bge-small, PCA 8/16/32 per training fold) and
+  PEAD.txt's SUE.txt (Meursault et al., JFQA 2022) both lowered Signal 1 (IC 0.234 → 0.18–0.21) and
+  did not improve Signal 2's top-minus-bottom spread (2022–26 walk-forward). Neither predicts drift here.
+
+Every call can be logged and scored later, so both signals build a forward track record.
+
+```bash
+# One-off: build the event history (~40 min) and add Nasdaq consensus for 2021+ (~35 min)
+go run . --build-universe data/universe.csv
+go run . --build-dataset data/events_10y.jsonl --universe data/universe.csv --years 10
+go run . --backfill-consensus data/events_10y.jsonl
+
+# Each day, for reports already out. Signal 1 is ready the evening of an after-close
+# report; Signal 2 needs the reaction-day open, so run after 09:30 ET.
+go run . --from 2026-10-19 --to 2026-10-20 --min-cap-b 10 --post-release --log-predictions
+
+# Any time: score everything logged so far
+go run . --score-predictions
+```
+
+The signals are computed by the sibling `llm_earnings_agent` project (`uv pip install -e ".[pead]"`).
+Run its `llm-earnings-agent pead live|model|gate` commands directly for the research views.
+
+**Reading the card**
+```
+Signal 1 ▲ Positive   surprise +31.9% → reaction day up 63% of the time (n=3841, mean +2.99%)
+Signal 2   no trade      decile 1/10 at the open (gap +3.2%); decile history: mean +0.06% vs SPY, beat SPY 48%
+```
+- **Signal 1** shows how often reaction days were positive for surprises of this size since 2021 (Positive at
+  ≥55%, Negative at ≤45%). Read it as context, not a trade: after an after-close report most of that move
+  happens in after-hours trading.
+- **Signal 2** shows the decile of the predicted open→close minus SPY, and that decile's history on events the
+  model never saw ("beat SPY" = share of those events whose open→close beat SPY's). Only **decile 10** is a
+  trade: **LONG, open to close**. Since 2025-07 it averaged +1.06% vs SPY (54% beat SPY); decile 9 had no
+  edge and the short deciles averaged about zero, so deciles 1–9 read "no trade". Hedging with SPY is
+  optional: SPY's open→close (σ ≈ 0.7%) is small next to the stock's (σ ≈ 5.7%), so the hedge removes the
+  market's direction on the day but hardly changes the risk.
+- **Logging rules:** calls count only if logged before 16:00 ET on the reaction day. `--score-predictions`
+  scores Signal 1 on a >1% reaction-day move and Signal 2 (decile 10 longs) on the sign of open→close minus
+  SPY — what the model predicts; an unhedged trade's P&L differs by SPY's open→close that day.
+
+---
+
 ## CLI Flags
 
 | Flag | Default | Description |
@@ -56,6 +114,16 @@ go run . --symbol AAPL --gex
 | `--no-peers` | off | Disable sector peer analysis (faster; US-only feature) |
 | `--no-news` | off | Disable material 8-K event fetching (faster; US-only feature) |
 | `--gex` | off | Compute dealer gamma exposure table — **requires `--symbol`** |
+| `--post-release` | off | Add Signal 1 / Signal 2 for reports already out (see Post-release signals) |
+| `--events-dataset FILE` | `data/events_10y.jsonl` | Event history that trains/calibrates the post-release signals |
+| `--log-predictions` | off | Append every call (pre-release Rating, LLM, drift, Signal 1/2) to `--predictions-file` |
+| `--predictions-file FILE` | `predictions.jsonl` | Prediction log |
+| `--score-predictions` | off | Score the prediction log against what actually happened, then exit |
+| `--llm-rating` / `--llm-agents` | off / `transcript,news` | LLM rating from the sibling agent and which specialists to run |
+| `--build-universe FILE` / `--universe-size N` | — / `1000` | Write the largest US stocks by market cap to a CSV |
+| `--build-dataset FILE` | — | Build the multi-year event dataset for `--universe` (resumable; `--years`, `--workers`) |
+| `--backfill-consensus FILE` | — | Add Nasdaq consensus EPS surprise to the events since `--consensus-from` (2021-01-01) |
+| `--export-events FILE` / `--evaluate-events FILE` | — | Export / evaluate drift events for the enriched stocks |
 
 *`--from`/`--to` are optional when `--symbol` is set.
 

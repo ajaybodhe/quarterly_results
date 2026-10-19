@@ -21,6 +21,65 @@ type Recommendation struct {
 	TopReasons []string       `json:"top_reasons"` // up to 3 highest-magnitude reason strings
 }
 
+// DriftFeatures are the facts a post-earnings-drift prediction may use. All
+// are known at the close of the reaction day, which is the decision time; the
+// drift itself is measured from that close forward (see internal/events).
+type DriftFeatures struct {
+	AnnouncementDate string   `json:"announcement_date"`
+	ReactionDay      string   `json:"reaction_day"`
+	ReactionRetPct   float64  `json:"reaction_ret_pct"` // prior close → reaction-day close
+	GapRetPct        float64  `json:"gap_ret_pct"`      // prior close → reaction-day open
+	EPSSurprisePct   *float64 `json:"eps_surprise_pct,omitempty"`
+	Pre7Ret          *float64 `json:"pre7_ret,omitempty"`        // ~7 days before → day before announcement
+	AbnormalVolume   *float64 `json:"abnormal_volume,omitempty"` // reaction-day volume ÷ prior 20-bar mean
+	SectorETF        string   `json:"sector_etf,omitempty"`
+	SectorRet1M      *float64 `json:"sector_ret_1m,omitempty"` // ETF return over ~30 days to the reaction close
+	// SUE is the consensus-free surprise: (EPS − EPS a year earlier) ÷ σ of
+	// the previous 8 such differences (seasonal random walk). Historical only:
+	// live, the new quarter isn't in SEC XBRL until the 10-Q is filed.
+	SUE           *float64 `json:"sue,omitempty"`
+	Ret1MPre      *float64 `json:"ret_1m_pre,omitempty"`     // ~30 days → day before announcement
+	Ret6MPre      *float64 `json:"ret_6m_pre,omitempty"`     // ~182 days → day before announcement
+	MarketRet1M   *float64 `json:"market_ret_1m,omitempty"`  // SPY over ~30 days to the reaction close
+	ReleaseTiming string   `json:"release_timing,omitempty"` // bmo / amc as used for the reaction day
+}
+
+// PostRelease holds the post-release signals for one released report, as
+// computed by `llm-earnings-agent pead live` (see the README):
+//   - Signal1, at the release: direction of the reaction-day move, from the
+//     historical calibration of the consensus EPS surprise.
+//   - Signal2, at the reaction-day open: open→close minus SPY, from a GBDT on
+//     surprise, gap and context, with an out-of-sample decile calibration.
+type PostRelease struct {
+	Symbol           string         `json:"symbol"`
+	AnnouncementDate string         `json:"announcement_date"`
+	ReactionDay      string         `json:"reaction_day,omitempty"`
+	Model            string         `json:"model,omitempty"`
+	Signal1          *ReleaseSignal `json:"signal1,omitempty"`
+	Signal2          *OpenSignal    `json:"signal2,omitempty"`
+}
+
+// ReleaseSignal is Signal 1: how reaction days went historically (2021+)
+// for consensus surprises of this size.
+type ReleaseSignal struct {
+	SurprisePct     float64 `json:"surprise_pct"`
+	PUp             float64 `json:"p_up"` // share of positive reaction days
+	N               int     `json:"n"`
+	MeanReactionPct float64 `json:"mean_reaction_pct"`
+	Label           string  `json:"label"` // Positive (P≥55%) / Negative (P≤45%) / Neutral
+}
+
+// OpenSignal is Signal 2: the predicted reaction-day open→close minus SPY,
+// its decile among out-of-sample predictions, and that decile's history.
+type OpenSignal struct {
+	PredictedPct float64  `json:"predicted_pct"`
+	Decile       int      `json:"decile"` // 1..10
+	Lean         string   `json:"lean"`   // "LONG" (decile 10 only; SPY hedge optional) / "no trade"
+	HistMeanPct  float64  `json:"hist_mean_pct"`
+	HistHit      *float64 `json:"hist_hit"`
+	GapPct       float64  `json:"gap_pct"`
+}
+
 // LLMRating is the JSON contract emitted by the sibling `llm-earnings-agent`
 // Python project. It is rendered alongside the deterministic Recommendation
 // but does not feed back into ComputeRecommendation — the two ratings stay

@@ -40,6 +40,21 @@ go run . --symbol AAPL --llm-rating --llm-agents all   # all five; payload sent 
 go run . --from 2026-10-19 --to 2026-10-23 --llm-rating --log-predictions
 go run . --score-predictions                  # table; add --output json for raw outcomes
 
+# Post-earnings drift (PEAD). A run whose window covers a just-released report
+# (reaction day within the last 5 bars) adds a "Drift" line and, with
+# --log-predictions, a drift-horizon record scored at +5 / +20 trading days.
+go run . --from 2026-10-13 --to 2026-10-15 --min-cap-b 50 --log-predictions
+
+# Point-in-time event dataset for drift research (features + labels per past
+# reaction), evaluated against baselines; --evaluate-events re-scores a file.
+go run . --from 2026-10-13 --to 2026-10-15 --export-events events.jsonl
+go run . --evaluate-events events.jsonl
+
+# Phase 2a research dataset: ~1,000 US stocks × 10 years, SEC + Yahoo only (no
+# consensus, options or LLM). Resumable via data/events_10y.jsonl.done.
+go run . --build-universe data/universe.csv            # top 1,000 by market cap (≥ ~$5.7B)
+go run . --build-dataset data/events_10y.jsonl --universe data/universe.csv --years 10
+
 # Test all (some tests hit the network; the full run takes ~4–5 min)
 go test -timeout 600s ./...
 
@@ -68,7 +83,7 @@ main.go
               ├─ report (AssembleResult, to build the LLM payload)
               └─ macro, exchange, indicators, logging
   └─ report (presentation)
-  └─ tracking (prediction log + scoring)
+  └─ tracking (prediction log + scoring), events (drift dataset export + evaluation)
 domain  ← shared data model used by every layer
 ```
 
@@ -103,6 +118,8 @@ domain  ← shared data model used by every layer
 | `internal/backtest` | Walk-forward Tier-1 backtest using `recommend.BacktestSignals`; `RunBacktest` / `FormatBacktestSummary` |
 | `internal/enrich` | `Enricher` (`Config`, `EnrichStream`, `EnrichAll`), `buildSummary()`, US-only guards for institutional/peers/events, `peerValuationMedians` |
 | `internal/report` | `AssembleResult`, all `Write*` output (table/stock cards, CSV, JSON, LLM rating block), `fmt*` formatting helpers |
+| `internal/events` | *(also)* `Builder` / `BuildDataset` (resumable multi-year dataset from SEC + Yahoo), `SUE`, `WriteUniverse` / `ReadUniverse` |
+| `internal/events` | Post-earnings drift research data: `Features` / `LiveFeatures` (point-in-time drift features at the reaction-day close), `LabelsAt` (drift +5/+20 bars, sector-adjusted; auxiliary abnormal volume, Post7; pre-announcement placebo), `Exporter` → JSON lines, `Evaluate` (rules vs reaction-only / surprise-only / majority baseline, Wilson CIs) |
 | `internal/tracking` | Prediction log (`predictions.jsonl`, JSON lines) and scoring against actual reactions: `NewRecord`, `Log`, `Load`, `Score`, `FormatReport` |
 | `internal/testutil` | `MockTransport` / `NewMockClient` HTTP mocks and shared test fixtures (`MustDate`, `ConceptJSON`) |
 
@@ -145,5 +162,23 @@ domain  ← shared data model used by every layer
 **Prediction log (`--log-predictions`, `--score-predictions`):** `main.go` appends one `tracking.Record` per stock with an upcoming earnings date (deterministic Rating, LLM rating, LLM sub-agent scores) to `--predictions-file` (default `predictions.jsonl`, gitignored). Re-running before a report adds more records. `tracking.Score` groups records per report (earnings dates within 45 days are the same report, so a moved date is handled) and uses the latest record logged before the release cutoff: 06:00 local for `bmo`, 16:00 for `amc`, midnight of the earnings date if the timing is unknown. It measures the reaction exactly like `EarningsReaction.RetPct`, via `indicators.ReactionDay` on Yahoo prices, labels it with `backtest.LabelFromReturn` (±1%), and reports hits / directional calls for `rating`, `rating (LLM-covered stocks)` (like-for-like), `llm`, and each `llm.<agent>`. Sub-agent calls use the aggregator's thresholds (score × confidence ≥ 15 on the 100-point scale, confidence ≥ 0.4).
 
 **Industry medians:** After the peers list is populated, `peerValuationMedians()` derives median PE_TTM and PS across peers that reported usable values. These feed `signalPEvsIndustry`. Peers compute their own PE/PS in `internal/peers` from each peer's TTM EPS / TTM Revenue at the matching quarter, divided by current price / market cap.
+
+**Post-earnings drift (Zhu, Liu & Sheng, ISR 2025 plan — Phase 1):** a second prediction, made *after* the reaction-day close, of the sector-adjusted move over the next 5 / 20 trading days. `enrich.driftFeatures` builds `domain.DriftFeatures` only while the reaction is fresh (`events.Fresh`: reaction day within the last 5 bars), preferring the calendar's release date/timing and Nasdaq's reported `% Surprise` (`CalendarRow.EPSSurprisePct`, available before the 10-Q reaches SEC) over the newest SEC-backed reaction. `recommend.ComputeDrift` aggregates `DriftSignals` (reaction, EPS surprise, LLM press-release read, sector 1M) with the same math/thresholds as the Rating (`aggregate`). The LLM read is used only when `transcript_quarter` matches the quarter just reported (`enrich.reportedQuarter`, same 10-day rule as the Python agent) — otherwise it is last quarter's release. Drift records in the prediction log are scored from the **earliest** record per (symbol, reaction day), with the window starting at the close of the day it was logged, so no prediction is credited with drift it already saw. The rules are hypotheses, not fitted weights: `--export-events` evaluates them on historical events and shows Wilson 95% CIs — any edge whose CI overlaps the baseline is unproven. Phase 2 (a multitask model in the Python repo with investor responses as auxiliary labels) needs a much larger event file first.
+
+**Research dataset builder (`events.Builder`, `--build-dataset`):** one event per quarterly earnings release, built only from SEC + Yahoo so 1,000 stocks × 10 years runs in under an hour:
+- **Release matching:** each SEC quarter (`sec.FetchQuarterlyHistory`, untrimmed) is matched to the last unused Item 2.02 8-K (`sec.FetchEarningsReleases`, which reads older submissions pages too) filed 10 days after the period end up to the 10-Q date. When the 10-Q date is implausible (XBRL can attribute a period to a later restating filing), the window ends 80 days after the period end instead.
+- **Release session:** taken from the 8-K's EDGAR acceptance time (accepted before 16:00 ET = before the open, otherwise after the close), so the reaction day doesn't depend on the price-gap heuristic.
+- **SUE:** consensus-free surprise, (EPS − EPS a year earlier) ÷ σ of the 8 prior differences, computed only from quarters released earlier. EPS is split-adjusted with Yahoo split events (`yahoo.FetchChartWithSplits`) on the basis of the filing each value came from. Quarters ending from 100 days before to 1 year after a split are flagged `split_window` and excluded from SUE: SEC's derived Q4 (annual − Q1..Q3) mixes share bases there, e.g. GOOGL Q4 2022 = −22.33.
+- **GAAP outliers:** SUE is GAAP-based, so one-offs (tax charges, spin-off gains) produce |SUE| ≫ 5. The dataset keeps raw values; models should winsorise.
+- **Labels and dedup:** labels are sector-adjusted (`drift*_adj`) and SPY-adjusted (`drift*_mkt`). Share classes are deduplicated by CIK.
+- **Known biases:** the universe is today's top 1,000 (survivorship bias), and release timing for filings accepted mid-session is assumed to be pre-open.
+
+**Post-release signals (`--post-release`):** results are held until enrichment finishes, then sent in one batch to the sibling agent's `pead live --output json` (`internal/source/pead`, binary via `llmagent.Binary()`), and `domain.PostRelease` is attached:
+- **Signal 1:** the historical reaction-day outcome for this size of consensus surprise. `EarningsResult.EPSSurprisePct` comes from the calendar's `% Surprise`.
+- **Signal 2:** a GBDT decile for open→close minus SPY. It only exists once the reaction-day open does, i.e. when `drift_features` are present.
+
+With `--log-predictions` they are logged as horizons `release` and `intraday` (`tracking/postrelease.go`). They are scored from the earliest record logged before 16:00 local time on the reaction day: Signal 1 on the reaction-day return (±1% deadband), Signal 2 on the sign of open→close minus SPY. Research results and the paper rationale are in the README's "Post-release signals" section.
+
+**Volume:** `domain.PricePoint.Volume` comes from Yahoo's chart `volume` array; `indicators.AbnormalVolume` divides a window's mean volume by the prior 20-bar mean. `sector.ETFPrices` caches each sector ETF's history per process (shared by momentum, the backtest and drift labels).
 
 **Backtest scope (Tier-1 only):** `backtest.RunBacktest` evaluates only `recommend.BacktestSignals` (`position`, `reaction_tendency`, `peer_reactions`, `sector_momentum`) — the strict subset reconstructable at a historical point in time without lookahead. The eight signals that depend on *current* fundamentals (PE/PS at date X, MSPR at date X, options snapshot, current consensus estimates) are excluded because we don't have the historical snapshots. Walk-forward: for each prior reaction, prices are truncated to bars `< announcement_date`, prior reactions are restricted to the strict prefix, and `sector.MomentumAt` recomputes the ETF return ending at that date. The harness compares predicted label to actual signed return (±1% deadband), reports hit rate vs the always-guess-most-common-label baseline.

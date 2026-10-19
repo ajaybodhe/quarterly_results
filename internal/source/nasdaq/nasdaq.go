@@ -168,6 +168,9 @@ type nasdaqRow struct {
 	EPSForecastRaw      string `json:"epsForecast"`
 	LastYearRptDt       string `json:"lastYearRptDt"`
 	LastYearEPSRaw      string `json:"lastYearEPS"` // e.g. "$4.51" or "-$0.12"
+	SurpriseRaw         string `json:"surprise"`    // past dates only, e.g. "3.37" (%)
+	EPSRaw              string `json:"eps"`         // past dates only: reported (street) EPS, e.g. "$4.60"
+	NoOfEstsRaw         string `json:"noOfEsts"`
 }
 
 // FetchEarningsCalendar implements CalendarProvider.
@@ -222,6 +225,7 @@ func (c *Client) FetchEarningsCalendar(from, to time.Time) ([]domain.EarningsEve
 				FiscalQuarterEnding: row.FiscalQuarterEnding,
 				EPSForecast:         parseEPS(row.EPSForecastRaw),
 				LastYearEPS:         parseEPS(row.LastYearEPSRaw),
+				EPSSurprisePct:      parseSurprise(row.SurpriseRaw),
 			}
 		}
 	}
@@ -231,6 +235,56 @@ func (c *Client) FetchEarningsCalendar(from, to time.Time) ([]domain.EarningsEve
 
 // parseEPS converts a Nasdaq EPS string to float64.
 // Handles: "$4.51", "-$0.12", "($0.61)" (accountant negative notation).
+// ReportedEarnings is one past-date calendar row: the consensus going in and
+// what the company reported, on the street (adjusted) basis the market trades.
+type ReportedEarnings struct {
+	Symbol      string   `json:"symbol"`
+	Time        string   `json:"time"` // bmo / amc / ""
+	EPSActual   *float64 `json:"eps_actual,omitempty"`
+	EPSForecast float64  `json:"eps_forecast"`
+	SurprisePct *float64 `json:"surprise_pct,omitempty"`
+	Estimates   int      `json:"estimates"`
+}
+
+// FetchReported returns every calendar row for one date (consensus, actual
+// and surprise are filled once the date has reported).
+func (c *Client) FetchReported(date time.Time) ([]ReportedEarnings, error) {
+	rows, err := c.fetchDay(date)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ReportedEarnings, 0, len(rows))
+	for _, r := range rows {
+		re := ReportedEarnings{
+			Symbol:      strings.ToUpper(strings.TrimSpace(r.Symbol)),
+			Time:        normalizeNasdaqTime(r.Time),
+			EPSForecast: parseEPS(r.EPSForecastRaw),
+			SurprisePct: parseSurprise(r.SurpriseRaw),
+		}
+		if v := strings.TrimSpace(r.EPSRaw); v != "" && v != "N/A" && v != "-" {
+			eps := parseEPS(v)
+			re.EPSActual = &eps
+		}
+		re.Estimates, _ = strconv.Atoi(strings.TrimSpace(r.NoOfEstsRaw))
+		out = append(out, re)
+	}
+	return out, nil
+}
+
+// parseSurprise parses Nasdaq's "% Surprise" column ("3.37", "-12.5", "N/A",
+// ""), returning nil when the date hasn't reported or the value is missing.
+func parseSurprise(s string) *float64 {
+	s = strings.TrimSuffix(strings.TrimSpace(s), "%")
+	if s == "" || s == "N/A" || s == "-" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(strings.ReplaceAll(s, ",", ""), 64)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
 func parseEPS(s string) float64 {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "N/A" || s == "-" {

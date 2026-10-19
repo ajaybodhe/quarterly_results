@@ -1,2 +1,6 @@
 quarterly_results
 predictions.jsonl
+events.jsonl
+data/*.jsonl
+data/*.jsonl.done
+data/nasdaq_calendar/

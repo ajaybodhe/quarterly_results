@@ -117,6 +117,16 @@ type EarningsResult struct {
 	// score, confidence, and the per-signal breakdown. See internal/recommend.
 	Recommendation *Recommendation `json:"recommendation,omitempty"`
 
+	// Post-earnings drift prediction, made after the reaction-day close for a
+	// report that was just released. See internal/events and recommend.ComputeDrift.
+	DriftFeatures       *DriftFeatures  `json:"drift_features,omitempty"`
+	DriftRecommendation *Recommendation `json:"drift_recommendation,omitempty"`
+
+	// Consensus EPS surprise (%) once the report is out, and the post-release
+	// signals computed from it (--post-release).
+	EPSSurprisePct *float64     `json:"eps_surprise_pct,omitempty"`
+	PostRelease    *PostRelease `json:"post_release,omitempty"`
+
 	// Walk-forward backtest of the Tier-1 signals on this stock's last
 	// ≤4 reactions. Populated only when --backtest is set.
 	Backtest *BacktestSummary `json:"backtest,omitempty"`

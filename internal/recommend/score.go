@@ -44,31 +44,37 @@ func ComputeRecommendationFrom(s *domain.FinancialSummary, signals []Signal) *do
 	}
 
 	results := make([]domain.SignalResult, 0, len(signals))
-	var rawScore, maxWeight, usedWeight float64
-
 	for _, sig := range signals {
 		score, conf, reason := sig.Compute(s)
-		// clamp inputs defensively in case a signal returns out-of-range values.
-		if score > 1 {
-			score = 1
-		} else if score < -1 {
-			score = -1
-		}
-		if conf < 0 {
-			conf = 0
-		} else if conf > 1 {
-			conf = 1
-		}
-		results = append(results, domain.SignalResult{
-			Name:       sig.Name,
-			Weight:     sig.Weight,
-			Score:      score,
-			Confidence: conf,
-			Reason:     reason,
-		})
-		rawScore += sig.Weight * score * conf
-		maxWeight += sig.Weight
-		usedWeight += sig.Weight * conf
+		results = append(results, signalResult(sig.Name, sig.Weight, score, conf, reason))
+	}
+	return aggregate(results)
+}
+
+// signalResult clamps a signal's output into range (defensively, in case a
+// signal returns out-of-range values) and packages it.
+func signalResult(name string, weight, score, conf float64, reason string) domain.SignalResult {
+	if score > 1 {
+		score = 1
+	} else if score < -1 {
+		score = -1
+	}
+	if conf < 0 {
+		conf = 0
+	} else if conf > 1 {
+		conf = 1
+	}
+	return domain.SignalResult{Name: name, Weight: weight, Score: score, Confidence: conf, Reason: reason}
+}
+
+// aggregate combines evaluated signals into one Recommendation using the
+// weight × score × confidence formula documented on ComputeRecommendationFrom.
+func aggregate(results []domain.SignalResult) *domain.Recommendation {
+	var rawScore, maxWeight, usedWeight float64
+	for _, r := range results {
+		rawScore += r.Weight * r.Score * r.Confidence
+		maxWeight += r.Weight
+		usedWeight += r.Weight * r.Confidence
 	}
 
 	if maxWeight == 0 {

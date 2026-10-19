@@ -192,3 +192,76 @@ func ReactionDay(announceDate time.Time, earningsTime string, prices []domain.Pr
 		return time.Time{}, 0, false
 	}
 }
+
+// barOnOrBefore returns the index of the last bar dated on or before target,
+// or -1 when every bar is later.
+func barOnOrBefore(prices []domain.PricePoint, target time.Time) int {
+	idx := -1
+	for i, p := range prices {
+		if p.Date.After(target) {
+			break
+		}
+		idx = i
+	}
+	return idx
+}
+
+// barOn returns the index of the bar dated exactly on target's calendar day.
+func barOn(prices []domain.PricePoint, target time.Time) int {
+	want := target.Format("2006-01-02")
+	for i, p := range prices {
+		if p.Date.Format("2006-01-02") == want {
+			return i
+		}
+	}
+	return -1
+}
+
+// ForwardReturn is the % return from the close of the last bar on or before
+// from to the close n trading bars later. ok is false when fewer than n bars
+// follow (the window hasn't completed yet).
+func ForwardReturn(prices []domain.PricePoint, from time.Time, n int) (ret float64, end time.Time, ok bool) {
+	i := barOnOrBefore(prices, from)
+	if i < 0 || n <= 0 || i+n >= len(prices) || prices[i].Close == 0 {
+		return 0, time.Time{}, false
+	}
+	return PctChange(prices[i].Close, prices[i+n].Close), prices[i+n].Date, true
+}
+
+// ReturnBetween is the % return from the close on or before from to the
+// close on or before to — used to align a benchmark (e.g. a sector ETF) to
+// another series' window.
+func ReturnBetween(prices []domain.PricePoint, from, to time.Time) (float64, bool) {
+	a, b := barOnOrBefore(prices, from), barOnOrBefore(prices, to)
+	if a < 0 || b <= a || prices[a].Close == 0 {
+		return 0, false
+	}
+	return PctChange(prices[a].Close, prices[b].Close), true
+}
+
+// AbnormalVolume is the mean volume over bars day+from … day+to (inclusive,
+// relative to the bar dated day) divided by the mean volume of the lookback
+// bars before day. ok is false when day has no bar, the window runs past the
+// data, or there is too little pre-event volume to form a baseline.
+func AbnormalVolume(prices []domain.PricePoint, day time.Time, from, to, lookback int) (float64, bool) {
+	i := barOn(prices, day)
+	if i < 0 || from > to || i+from < 0 || i+to >= len(prices) {
+		return 0, false
+	}
+	var base float64
+	var nBase int
+	for j := i - lookback; j < i; j++ {
+		if j >= 0 && prices[j].Volume > 0 {
+			base += prices[j].Volume
+			nBase++
+		}
+	}
+	if nBase < lookback/2 || base == 0 {
+		return 0, false
+	}
+	var win float64
+	for j := i + from; j <= i+to; j++ {
+		win += prices[j].Volume
+	}
+	return (win / float64(to-from+1)) / (base / float64(nBase)), true
+}

@@ -154,3 +154,55 @@ func TestNasdaqGetJSONGivesUpAfterMaxRetries(t *testing.T) {
 		t.Fatalf("expected WAF error, got: %v", err)
 	}
 }
+
+func TestParseSurprise(t *testing.T) {
+	for in, want := range map[string]float64{"3.37": 3.37, "-12.5": -12.5, " 1,234.5% ": 1234.5} {
+		if got := parseSurprise(in); got == nil || *got != want {
+			t.Errorf("parseSurprise(%q) = %v, want %v", in, got, want)
+		}
+	}
+	for _, in := range []string{"", "N/A", "-", "abc"} {
+		if got := parseSurprise(in); got != nil {
+			t.Errorf("parseSurprise(%q) = %v, want nil", in, *got)
+		}
+	}
+}
+
+func TestLargestUS(t *testing.T) {
+	rows := []screenerRow{
+		{Symbol: "AAPL", MarketCap: "3000000000000", Country: "United States"},
+		{Symbol: "TSM", MarketCap: "2000000000000", Country: "Taiwan"},
+		{Symbol: "BRK/B", MarketCap: "1000000000000", Country: "United States"},
+		{Symbol: "BAC^K", MarketCap: "900000000000", Country: "United States"},
+		{Symbol: "SMMT", MarketCap: "12000000000", Country: "United States"},
+		{Symbol: "NOCAP", MarketCap: "", Country: "United States"},
+	}
+	got := largestUS(rows, 2)
+	if len(got) != 2 || got[0].Symbol != "AAPL" || got[1].Symbol != "BRK-B" || got[1].MarketCapB != 1000 {
+		t.Errorf("largestUS = %+v", got)
+	}
+	if all := largestUS(rows, 10); len(all) != 3 {
+		t.Errorf("expected AAPL, BRK-B, SMMT only, got %+v", all)
+	}
+}
+
+func TestLargestUS_DropsNonCommonSecurities(t *testing.T) {
+	names := map[string]bool{ // name → kept
+		"AGNC Investment Corp. Common Stock":                                                       true,
+		"Liberty Media Corporation Series C Common Stock":                                          true,
+		"Sea Limited American Depositary Shares each representing one Class A Ordinary Share":      true,
+		"MPLX LP Common Units Representing Limited Partner Interests":                              true,
+		"AGNC Investment Corp. Depositary Shares Each Representing a 1/1000th Interest in a Share": false,
+		"Strategy Inc 10.00% Series A Perpetual Strife Preferred Stock":                            false,
+		"AT&T Inc. 5.350% Global Notes due 2066":                                                   false,
+		"Duke Energy Corporation 5.625% Junior Subordinated Debentures due 2078":                   false,
+		"Southern Company (The) 2025 Series A Corporate Units":                                     false,
+		"BrightSpring Health Services Inc. Tangible Equity Unit":                                   false,
+	}
+	for name, kept := range names {
+		got := largestUS([]screenerRow{{Symbol: "X", Name: name, MarketCap: "1e10", Country: "United States"}}, 10)
+		if (len(got) == 1) != kept {
+			t.Errorf("%q kept=%v, want %v", name, len(got) == 1, kept)
+		}
+	}
+}

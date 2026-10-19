@@ -3,6 +3,7 @@ package sec
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -815,5 +816,99 @@ func TestFetchMaterialEvents_LabelPopulated(t *testing.T) {
 	evts, _ := c.FetchMaterialEvents("LBL", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	if len(evts) != 1 || evts[0].Label != "Director/Officer Change" {
 		t.Errorf("expected label Director/Officer Change, got %+v", evts)
+	}
+}
+
+func TestFetchEarningsReleases_ReadsOlderPagesAndFilters(t *testing.T) {
+	recent := `{"name":"X","sic":"3571","filings":{"recent":{
+		"form":["8-K","8-K/A","4","8-K","8-K"],
+		"filingDate":["2026-07-30","2026-08-02","2026-07-01","2026-05-15","2026-04-30"],
+		"acceptanceDateTime":["2026-07-31T00:30:28.000Z","","","2026-05-15T12:00:00.000Z","2026-04-30T20:31:00.000Z"],
+		"reportDate":["2026-07-30","","","2026-05-15","2026-04-30"],
+		"accessionNumber":["a1","a2","a3","a4","a5"],
+		"primaryDocument":["d1.htm","d2.htm","d3.htm","d4.htm","d5.htm"],
+		"items":["2.02,9.01","2.02","","5.07","2.02,9.01"]},
+		"files":[
+			{"name":"CIK0000000001-submissions-001.json","filingFrom":"2015-01-01","filingTo":"2026-01-31"},
+			{"name":"CIK0000000001-submissions-002.json","filingFrom":"2001-01-01","filingTo":"2014-12-31"}]}}`
+	page1 := `{"form":["8-K","8-K"],"filingDate":["2026-01-29","2015-10-28"],
+		"acceptanceDateTime":["2026-01-29T21:35:00.000Z","2015-10-28T20:30:00.000Z"],
+		"reportDate":["2026-01-29","2015-10-28"],"accessionNumber":["b1","b2"],
+		"primaryDocument":["e1.htm","e2.htm"],"items":["2.02,9.01","2.02"]}`
+	tr := testutil.NewMockTransport().
+		On("submissions/CIK0000000001.json", 200, recent, "application/json").
+		On("CIK0000000001-submissions-001.json", 200, page1, "application/json")
+	c := NewClientWithHTTP(testutil.NewMockClient(tr), map[string]int{"X": 1})
+
+	got, err := c.FetchEarningsReleases("X", "2016-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dates []string
+	for _, r := range got {
+		dates = append(dates, r.FilingDate)
+	}
+	// Item 2.02 originals only (no 8-K/A, no Form 4, no 5.07), since-filtered,
+	// oldest first, including the older page; page 002 (pre-2015) never fetched.
+	if want := "2026-01-29,2026-04-30,2026-07-30"; strings.Join(dates, ",") != want {
+		t.Errorf("release dates = %v, want %s", dates, want)
+	}
+	if got[2].Accession != "a1" || got[2].PrimaryDoc != "d1.htm" ||
+		!got[2].Accepted.Equal(time.Date(2026, 7, 31, 0, 30, 28, 0, time.UTC)) {
+		t.Errorf("latest release = %+v", got[2])
+	}
+	if tr.Count("CIK0000000001-submissions-002.json") != 0 {
+		t.Error("pages entirely before `since` must not be fetched")
+	}
+}
+
+func TestGet_RetriesThrottlingThenSucceeds(t *testing.T) {
+	calls := 0
+	tr := testutil.NewMockTransport().OnFunc(
+		func(r *http.Request) bool { return true },
+		func(r *http.Request) *http.Response {
+			calls++
+			status, body := http.StatusTooManyRequests, "slow down"
+			if calls == 3 {
+				status, body = http.StatusOK, `{"name":"X"}`
+			}
+			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}
+		})
+	c := NewClientWithHTTP(testutil.NewMockClient(tr), nil)
+	c.retryBackoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	resp, err := c.get("https://data.sec.gov/submissions/CIK0000000001.json")
+	if err != nil || resp.StatusCode != http.StatusOK || calls != 3 {
+		t.Fatalf("get = %v, %v after %d calls", resp, err, calls)
+	}
+	resp.Body.Close()
+}
+
+func TestFetchQuarterlyHistory_ReportsFailuresNotMissingData(t *testing.T) {
+	tr := testutil.NewMockTransport().On("companyconcept", http.StatusTooManyRequests, "rate limited", "text/plain")
+	c := NewClientWithHTTP(testutil.NewMockClient(tr), map[string]int{"X": 1})
+	_, err := c.FetchQuarterlyHistory("X")
+	if err == nil || !strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "no EPS concept found") {
+		t.Errorf("a throttled request must surface as a failure, got: %v", err)
+	}
+}
+
+func TestFetchConcept_FallsBackToCompanyFactsOnEmptyUnits(t *testing.T) {
+	// companyconcept serves the units as empty objects (seen for KO, ABT, PYPL, F).
+	broken := `{"units":{"USD/shares":{},"pure":{}}}`
+	facts := `{"facts":{"us-gaap":{"EarningsPerShareDiluted":{"units":{"USD/shares":[
+		{"start":"2026-01-01","end":"2026-03-31","val":0.91,"form":"10-Q","filed":"2026-04-30"},
+		{"start":"2025-10-01","end":"2025-12-31","val":0.70,"form":"10-K","filed":"2026-02-20"}]}}}}}`
+	tr := testutil.NewMockTransport().
+		On("companyconcept", 200, broken, "application/json").
+		On("companyfacts/CIK0000021344.json", 200, facts, "application/json")
+	c := NewClientWithHTTP(testutil.NewMockClient(tr), map[string]int{"KO": 21344})
+	vals, _, _, err := c.fetchConcept(21344, "us-gaap", "EarningsPerShareDiluted")
+	if err != nil || vals["2026-03-31"] != 0.91 {
+		t.Fatalf("fallback values = %v, err %v", vals, err)
+	}
+	// A second concept for the same company reuses the cached document.
+	c.fetchConcept(21344, "us-gaap", "Revenues")
+	if n := tr.Count("companyfacts"); n != 1 {
+		t.Errorf("companyfacts fetched %d times, want 1", n)
 	}
 }

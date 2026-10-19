@@ -136,6 +136,7 @@ func (e *Enricher) buildSummary(res domain.EarningsResult, row domain.CalendarRo
 		EPSLastYear:   row.LastYearEPS,
 		FiscalQuarter: row.FiscalQuarterEnding,
 		Currency:      e.exCfg.Currency,
+		EPSSurprise:   row.EPSSurprisePct,
 	}
 	if s.Currency == "" {
 		s.Currency = "USD"
@@ -809,6 +810,9 @@ func (e *Enricher) buildSummary(res domain.EarningsResult, row domain.CalendarRo
 		}
 		s.MaterialEvents = rawMatEvents
 	}
+
+	// ── Post-earnings drift features (only right after a release) ────────────
+	s.DriftFeatures = e.driftFeatures(res, row, s, prices)
 
 	// ── Recommendation: aggregate every signal into a single directional score ──
 	s.Recommendation = recommend.ComputeRecommendation(s)

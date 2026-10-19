@@ -37,10 +37,18 @@ type yahooChartResponse struct {
 				GMTOffset            int    `json:"gmtoffset"` // seconds
 			} `json:"meta"`
 			Timestamps []int64 `json:"timestamp"`
+			Events     struct {
+				Splits map[string]struct {
+					Date        int64   `json:"date"`
+					Numerator   float64 `json:"numerator"`
+					Denominator float64 `json:"denominator"`
+				} `json:"splits"`
+			} `json:"events"`
 			Indicators struct {
 				Quote []struct {
-					Open  []float64 `json:"open"`
-					Close []float64 `json:"close"`
+					Open   []float64 `json:"open"`
+					Volume []float64 `json:"volume"`
+					Close  []float64 `json:"close"`
 				} `json:"quote"`
 			} `json:"indicators"`
 		} `json:"result"`
@@ -61,31 +69,55 @@ func (p *PriceProvider) FetchPriceHistory(symbol string) ([]domain.PricePoint, e
 // provider can call it directly without going through PriceProvider's
 // international-only exchange config.
 func FetchChartHistory(client *http.Client, symbol string) ([]domain.PricePoint, error) {
+	return FetchChartHistoryRange(client, symbol, "2y")
+}
+
+// FetchChartHistoryRange is FetchChartHistory with an explicit Yahoo range
+// ("2y", "5y", "10y", "max"), used to build multi-year research datasets.
+func FetchChartHistoryRange(client *http.Client, symbol, rng string) ([]domain.PricePoint, error) {
+	prices, _, err := FetchChartWithSplits(client, symbol, rng)
+	return prices, err
+}
+
+// Split is a stock split: one old share became Ratio new shares on Date.
+type Split struct {
+	Date  time.Time
+	Ratio float64 // numerator ÷ denominator, e.g. 4 for AAPL's 2020 4:1 split
+}
+
+// FetchChartWithSplits returns daily bars plus the split history over the
+// range. Prices are split-adjusted by Yahoo; per-share fundamentals taken
+// from filings are not, and need these splits to be comparable over time.
+func FetchChartWithSplits(client *http.Client, symbol, rng string) ([]domain.PricePoint, []Split, error) {
 	url := fmt.Sprintf(
-		"https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1d&range=2y",
-		symbol,
+		"https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1d&range=%s&events=split",
+		symbol, rng,
 	)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Yahoo Finance HTTP %d for %s", resp.StatusCode, symbol)
+		return nil, nil, fmt.Errorf("Yahoo Finance HTTP %d for %s", resp.StatusCode, symbol)
 	}
 
 	var raw yahooChartResponse
 	if err := decodeJSON(resp.Body, &raw); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return parseChart(raw, symbol)
+	prices, err := parseChart(raw, symbol)
+	if err != nil {
+		return nil, nil, err
+	}
+	return prices, parseSplits(raw), nil
 }
 
 // parseChart converts a chart response into daily bars dated at midnight UTC
@@ -118,10 +150,15 @@ func parseChart(raw yahooChartResponse, symbol string) ([]domain.PricePoint, err
 		if c <= 0 {
 			continue
 		}
+		var v float64
+		if i < len(quotes.Volume) {
+			v = quotes.Volume[i]
+		}
 		out = append(out, domain.PricePoint{
-			Date:  tradingDate(ts, loc),
-			Open:  o,
-			Close: c,
+			Date:   tradingDate(ts, loc),
+			Open:   o,
+			Close:  c,
+			Volume: v,
 		})
 	}
 	if len(out) == 0 {
@@ -129,6 +166,21 @@ func parseChart(raw yahooChartResponse, symbol string) ([]domain.PricePoint, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
 	return out, nil
+}
+
+// parseSplits returns the chart's split events, oldest first.
+func parseSplits(raw yahooChartResponse) []Split {
+	if len(raw.Chart.Result) == 0 {
+		return nil
+	}
+	var out []Split
+	for _, sp := range raw.Chart.Result[0].Events.Splits {
+		if sp.Numerator > 0 && sp.Denominator > 0 {
+			out = append(out, Split{Date: time.Unix(sp.Date, 0).UTC(), Ratio: sp.Numerator / sp.Denominator})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
+	return out
 }
 
 // chartLocation resolves the exchange timezone Yahoo reports for a chart,

@@ -121,6 +121,16 @@ type FinancialSummary struct {
 	// aggregating signals 1–11 (see internal/recommend/signals.go). Nil when scoring was skipped.
 	Recommendation *Recommendation
 
+	// Post-earnings drift: set only when the report was just released (the
+	// reaction day is among the last few bars). DriftRecommendation predicts
+	// the direction of the move over the following 5–20 trading days.
+	DriftFeatures       *DriftFeatures
+	DriftRecommendation *Recommendation
+
+	// EPSSurprise is the reported EPS surprise vs consensus (%), set once the
+	// report is out (Nasdaq calendar). Feeds the post-release signals.
+	EPSSurprise *float64
+
 	// Backtest is a walk-forward evaluation of the Tier-1 signals against
 	// this stock's last ≤4 reactions. Populated only when RunBacktest is on.
 	Backtest *BacktestSummary

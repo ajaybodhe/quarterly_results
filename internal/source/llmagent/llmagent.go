@@ -104,6 +104,10 @@ func effectiveAgents(agents []string) []string {
 	return agents
 }
 
+// Binary is the llm-earnings-agent command: LLM_AGENT_BIN if set, else
+// llm-earnings-agent on PATH, else the sibling checkout's virtualenv.
+func Binary() string { return llmAgentBinary() }
+
 // llmAgentBinary is the command we shell out to: LLM_AGENT_BIN if set, else
 // llm-earnings-agent on PATH, else the sibling checkout's virtualenv.
 func llmAgentBinary() string {

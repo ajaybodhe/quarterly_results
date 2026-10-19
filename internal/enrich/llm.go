@@ -7,6 +7,7 @@ import (
 	"quarterly_results/internal/domain"
 	"quarterly_results/internal/logging"
 	"quarterly_results/internal/macro"
+	"quarterly_results/internal/recommend"
 	"quarterly_results/internal/report"
 	"quarterly_results/internal/source/llmagent"
 )
@@ -17,6 +18,9 @@ func (e *Enricher) summarize(res domain.EarningsResult, row domain.CalendarRow, 
 	s := e.buildSummary(res, row, macroCal)
 	if s != nil && e.Config.LLMRating && llmagent.NeedsPayload(e.Config.LLMAgents) {
 		e.attachPayloadLLMRating(res, s)
+	}
+	if s != nil && s.DriftFeatures != nil {
+		s.DriftRecommendation = recommend.ComputeDrift(s.DriftFeatures, freshPressRelease(s))
 	}
 	return s
 }

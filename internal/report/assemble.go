@@ -144,6 +144,9 @@ func AssembleResult(r domain.EarningsResult, s *domain.FinancialSummary) domain.
 	r.Recommendation = s.Recommendation
 	r.Backtest = s.Backtest
 	r.LLMRating = s.LLMRating
+	r.DriftFeatures = s.DriftFeatures
+	r.DriftRecommendation = s.DriftRecommendation
+	r.EPSSurprisePct = s.EPSSurprise
 
 	if s.Hi52 > 0 {
 		r.Hi52 = fmtCurrency(s.Hi52, cur)

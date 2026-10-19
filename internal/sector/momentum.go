@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"quarterly_results/internal/domain"
 	"quarterly_results/internal/exchange"
 	"quarterly_results/internal/indicators"
 	"quarterly_results/internal/source/yahoo"
@@ -75,16 +76,32 @@ func sicSectorETFOverride(sic int) string {
 		return "SOXX"
 	case sic >= 7370 && sic < 7380: // Computer programming / data processing → broad tech
 		return "XLK"
-	case sic >= 2830 && sic < 2840: // Pharmaceuticals
+	case sic == 2836: // Biological products → biotech
 		return "XBI"
+	case sic >= 2830 && sic < 2840: // Pharmaceutical preparations (JNJ, PFE, MRK) → health care
+		return "XLV"
+	case sic == 6324: // Hospital & medical service plans (UNH, ELV, CI) → health care
+		return "XLV"
 	case sic >= 6020 && sic < 6100: // Banks specifically
 		return "KBE"
+	case sic == 6798 || (sic >= 6500 && sic < 6560): // REITs and real estate operators
+		return "XLRE"
+	case sic >= 4800 && sic < 4900: // Telephone, cable and other communications
+		return "XLC"
+	case sic == 5331 || sic == 5411 || sic == 5912: // Variety, grocery and drug stores → staples
+		return "XLP"
+	case sic >= 8700 && sic < 8750: // Engineering, accounting, research, management services
+		return "XLI"
 	}
 	return ""
 }
 
 // sectorETFForSIC returns the best ETF for a given 4-digit SIC code, preferring
 // fine-grained overrides over the broad sector bucket default.
+// ETFForSIC returns the sector ETF used as the benchmark for a SIC code
+// ("SPY" when the code is unknown).
+func ETFForSIC(sic int) string { return sectorETFForSIC(sic) }
+
 func sectorETFForSIC(sic int) string {
 	if etf := sicSectorETFOverride(sic); etf != "" {
 		return etf
@@ -100,6 +117,33 @@ type sectorMomentumCache struct {
 }
 
 var globalSectorCache = &sectorMomentumCache{results: map[string]*Momentum{}}
+
+// etfPriceCache memoises ETF daily price histories for the process, so
+// momentum, the backtest and drift labels share one download per ETF.
+var etfPriceCache = struct {
+	mu     sync.Mutex
+	prices map[string][]domain.PricePoint
+}{prices: map[string][]domain.PricePoint{}}
+
+// ETFPrices returns the daily price history for a sector ETF (oldest →
+// newest), fetched once per process.
+func ETFPrices(etf string, httpClient *http.Client) ([]domain.PricePoint, error) {
+	etfPriceCache.mu.Lock()
+	cached, ok := etfPriceCache.prices[etf]
+	etfPriceCache.mu.Unlock()
+	if ok {
+		return cached, nil
+	}
+	// Use the Yahoo provider directly (works for ETFs; Nasdaq's API doesn't).
+	prices, err := yahoo.NewPriceProvider(httpClient, exchange.Config{}).FetchPriceHistory(etf)
+	if err != nil {
+		return nil, err
+	}
+	etfPriceCache.mu.Lock()
+	etfPriceCache.prices[etf] = prices
+	etfPriceCache.mu.Unlock()
+	return prices, nil
+}
 
 // FetchMomentum returns the sector-ETF momentum for the given SIC code.
 // Uses Yahoo Finance (works for all SPDR/index ETFs and is rate-limit-friendly
@@ -117,9 +161,7 @@ func FetchMomentum(sic int, httpClient *http.Client) *Momentum {
 	}
 	globalSectorCache.mu.Unlock()
 
-	// Use the Yahoo provider directly (works for ETFs; Nasdaq's API doesn't).
-	yp := yahoo.NewPriceProvider(httpClient, exchange.Config{})
-	prices, err := yp.FetchPriceHistory(etf)
+	prices, err := ETFPrices(etf, httpClient)
 	if err != nil || len(prices) == 0 {
 		return &Momentum{ETF: etf}
 	}
@@ -144,15 +186,14 @@ func FetchMomentum(sic int, httpClient *http.Client) *Momentum {
 
 // MomentumAt returns the sector-ETF return for a *historical* point in
 // time, ending at `asOf`. Used by the backtest harness to score signals as
-// they would have been at a past announcement date — no caching, since the
-// `asOf` parameter varies per call.
+// they would have been at a past announcement date. The result isn't cached
+// because `asOf` varies per call; the ETF price history is (see ETFPrices).
 func MomentumAt(sic int, asOf time.Time, httpClient *http.Client) *Momentum {
 	etf := sectorETFForSIC(sic)
 	if etf == "" {
 		return nil
 	}
-	yp := yahoo.NewPriceProvider(httpClient, exchange.Config{})
-	prices, err := yp.FetchPriceHistory(etf)
+	prices, err := ETFPrices(etf, httpClient)
 	if err != nil || len(prices) == 0 {
 		return &Momentum{ETF: etf}
 	}

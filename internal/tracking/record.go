@@ -35,22 +35,43 @@ type SubPrediction struct {
 // LLMPrediction is the LLM agent's aggregate call plus its per-agent scores.
 type LLMPrediction struct {
 	Prediction
-	Agents []string                 `json:"agents,omitempty"`
-	Model  string                   `json:"model,omitempty"`
-	Sub    map[string]SubPrediction `json:"sub,omitempty"`
+	Agents        []string                 `json:"agents,omitempty"`
+	Model         string                   `json:"model,omitempty"`
+	PromptVersion string                   `json:"prompt_version,omitempty"` // pinned for drift monitoring
+	Sub           map[string]SubPrediction `json:"sub,omitempty"`
 }
 
-// Record is one logged prediction for one stock's upcoming report. A stock is
-// usually logged several times before it reports; scoring uses the latest
-// record made before the release (see Score).
+// Prediction horizons. Records written before horizons existed have none and
+// are reaction predictions.
+const (
+	HorizonReaction = "reaction" // pre-release call on the reaction-day move
+	HorizonDrift    = "drift"    // post-reaction call on the next 5 / 20 trading days
+	HorizonRelease  = "release"  // Signal 1: after the release, before the reaction-day close
+	HorizonIntraday = "intraday" // Signal 2: at the reaction-day open, open→close minus SPY
+)
+
+// Record is one logged prediction for one stock's report. A stock is usually
+// logged several times; scoring uses the latest reaction record made before
+// the release, and the earliest drift record made after the reaction (see Score).
 type Record struct {
 	LoggedAt     time.Time      `json:"logged_at"`
+	Horizon      string         `json:"horizon,omitempty"` // HorizonReaction (default) or HorizonDrift
 	Symbol       string         `json:"symbol"`
 	Exchange     string         `json:"exchange"`
 	EarningsDate string         `json:"earnings_date"`           // YYYY-MM-DD
 	EarningsTime string         `json:"earnings_time,omitempty"` // bmo / amc / ""
-	Rating       *Prediction    `json:"rating,omitempty"`        // deterministic Recommendation
+	ReactionDay  string         `json:"reaction_day,omitempty"`  // drift records: the reaction already observed
+	SectorETF    string         `json:"sector_etf,omitempty"`    // drift records: benchmark for sector-adjusted drift
+	Decile       int            `json:"decile,omitempty"`        // intraday records: Signal 2 decile (1..10)
+	Rating       *Prediction    `json:"rating,omitempty"`        // Recommendation, or DriftRecommendation for drift records
 	LLM          *LLMPrediction `json:"llm,omitempty"`
+}
+
+func (r Record) horizon() string {
+	if r.Horizon == "" {
+		return HorizonReaction
+	}
+	return r.Horizon
 }
 
 // NewRecord builds a log record from an assembled result. ok is false when the
@@ -65,6 +86,7 @@ func NewRecord(r domain.EarningsResult, cfg exchange.Config, now time.Time) (Rec
 	}
 	rec := Record{
 		LoggedAt:     now.UTC().Truncate(time.Second),
+		Horizon:      HorizonReaction,
 		Symbol:       r.Symbol,
 		Exchange:     string(cfg.Exchange),
 		EarningsDate: r.EarningsDate,
@@ -73,26 +95,55 @@ func NewRecord(r domain.EarningsResult, cfg exchange.Config, now time.Time) (Rec
 	if rr := r.Recommendation; rr != nil {
 		rec.Rating = &Prediction{Label: rr.Label, Score: rr.Score, Confidence: rr.Confidence}
 	}
-	if l := r.LLMRating; l != nil {
-		rec.LLM = &LLMPrediction{
-			Prediction: Prediction{Label: l.Rating.Label, Score: l.Rating.Score, Confidence: l.Rating.Confidence},
-			Agents:     l.Metadata.Agents,
-			Model:      l.Metadata.Model,
-			Sub:        map[string]SubPrediction{},
-		}
-		for name, sub := range map[string]*domain.LLMSubAnalysis{
-			"fundamentals": l.SubRatings.Fundamentals,
-			"transcript":   l.SubRatings.Transcript,
-			"news":         l.SubRatings.News,
-			"macro":        l.SubRatings.Macro,
-			"dynamic":      l.SubRatings.Dynamic,
-		} {
-			if sub != nil {
-				rec.LLM.Sub[name] = SubPrediction{Score: sub.Score, Confidence: sub.Confidence}
-			}
+	rec.LLM = llmPrediction(r.LLMRating)
+	return rec, true
+}
+
+// NewDriftRecord builds a drift-horizon record from a result that carries a
+// post-reaction DriftRecommendation (a report released in the last few days).
+// The LLM rating, read right after the release, is logged alongside it.
+func NewDriftRecord(r domain.EarningsResult, cfg exchange.Config, now time.Time) (Record, bool) {
+	f, d := r.DriftFeatures, r.DriftRecommendation
+	if f == nil || d == nil {
+		return Record{}, false
+	}
+	return Record{
+		LoggedAt:     now.UTC().Truncate(time.Second),
+		Horizon:      HorizonDrift,
+		Symbol:       r.Symbol,
+		Exchange:     string(cfg.Exchange),
+		EarningsDate: f.AnnouncementDate,
+		EarningsTime: r.EarningsTime,
+		ReactionDay:  f.ReactionDay,
+		SectorETF:    f.SectorETF,
+		Rating:       &Prediction{Label: d.Label, Score: d.Score, Confidence: d.Confidence},
+		LLM:          llmPrediction(r.LLMRating),
+	}, true
+}
+
+func llmPrediction(l *domain.LLMRating) *LLMPrediction {
+	if l == nil {
+		return nil
+	}
+	p := &LLMPrediction{
+		Prediction:    Prediction{Label: l.Rating.Label, Score: l.Rating.Score, Confidence: l.Rating.Confidence},
+		Agents:        l.Metadata.Agents,
+		Model:         l.Metadata.Model,
+		PromptVersion: l.Metadata.PromptVersion,
+		Sub:           map[string]SubPrediction{},
+	}
+	for name, sub := range map[string]*domain.LLMSubAnalysis{
+		"fundamentals": l.SubRatings.Fundamentals,
+		"transcript":   l.SubRatings.Transcript,
+		"news":         l.SubRatings.News,
+		"macro":        l.SubRatings.Macro,
+		"dynamic":      l.SubRatings.Dynamic,
+	} {
+		if sub != nil {
+			p.Sub[name] = SubPrediction{Score: sub.Score, Confidence: sub.Confidence}
 		}
 	}
-	return rec, true
+	return p
 }
 
 // Log appends records to a JSON-lines file. Safe for concurrent use.

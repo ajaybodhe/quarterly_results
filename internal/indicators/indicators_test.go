@@ -322,3 +322,50 @@ func TestReactionDayFor_BMOFallbackToAMCWhenNoPriorClose(t *testing.T) {
 	// Either is acceptable; we just check it doesn't panic.
 	_ = ok
 }
+
+// ── ForwardReturn / ReturnBetween / AbnormalVolume ──────────────────────────
+
+func volBars(closes, vols []float64) []domain.PricePoint {
+	start := testutil.MustDate("2026-01-05")
+	out := make([]domain.PricePoint, len(closes))
+	for i := range closes {
+		out[i] = domain.PricePoint{Date: start.AddDate(0, 0, i), Close: closes[i], Volume: vols[i]}
+	}
+	return out
+}
+
+func TestForwardReturn(t *testing.T) {
+	p := volBars([]float64{100, 110, 121, 133.1}, []float64{1, 1, 1, 1})
+	ret, end, ok := ForwardReturn(p, testutil.MustDate("2026-01-05"), 2)
+	if !ok || math.Abs(ret-21) > 1e-9 || end.Format("2006-01-02") != "2026-01-07" {
+		t.Errorf("ForwardReturn = %v %v %v", ret, end, ok)
+	}
+	if _, _, ok := ForwardReturn(p, testutil.MustDate("2026-01-07"), 2); ok {
+		t.Error("window past the data must not be ok")
+	}
+}
+
+func TestReturnBetween(t *testing.T) {
+	p := volBars([]float64{100, 110, 121}, []float64{1, 1, 1})
+	if r, ok := ReturnBetween(p, testutil.MustDate("2026-01-05"), testutil.MustDate("2026-01-07")); !ok || math.Abs(r-21) > 1e-9 {
+		t.Errorf("ReturnBetween = %v %v", r, ok)
+	}
+}
+
+func TestAbnormalVolume(t *testing.T) {
+	// 4 baseline bars at 100, event day 300, next two days 200.
+	p := volBars(make([]float64, 7), []float64{100, 100, 100, 100, 300, 200, 200})
+	for i := range p {
+		p[i].Close = 10
+	}
+	day := testutil.MustDate("2026-01-09") // index 4
+	if v, ok := AbnormalVolume(p, day, 0, 0, 4); !ok || v != 3 {
+		t.Errorf("event-day abnormal volume = %v %v, want 3", v, ok)
+	}
+	if v, ok := AbnormalVolume(p, day, 1, 2, 4); !ok || v != 2 {
+		t.Errorf("post-event abnormal volume = %v %v, want 2", v, ok)
+	}
+	if _, ok := AbnormalVolume(p, day, 1, 5, 4); ok {
+		t.Error("window past the data must not be ok")
+	}
+}

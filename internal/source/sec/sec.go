@@ -3,6 +3,7 @@ package sec
 import (
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,6 +73,14 @@ type Client struct {
 	subsCacheMu sync.Mutex
 
 	rl *secRateLimiter // shared rate limiter: ≤8 req/s to stay under SEC's 10/s cap
+
+	// factsCache holds the last few companyfacts documents (see companyFacts).
+	factsCache []cachedFacts
+	factsMu    sync.Mutex
+
+	// retryBackoff are the waits before retrying a request that hit SEC's rate
+	// limit (429), a 5xx, or a network error. Empty = no retries.
+	retryBackoff []time.Duration
 }
 
 func NewClient() *Client {
@@ -79,6 +88,35 @@ func NewClient() *Client {
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		subsCache:  make(map[int]*secSubmissionsResponse),
 		rl:         newSecRateLimiter(8),
+		// Bulk runs (e.g. --build-dataset) can still trip SEC's limit; without
+		// retries a throttled request read as "company has no data".
+		retryBackoff: []time.Duration{2 * time.Second, 5 * time.Second, 15 * time.Second, 30 * time.Second},
+	}
+}
+
+// errConceptNotFound marks a concept the company never reported (HTTP 404),
+// as opposed to a request that failed.
+var errConceptNotFound = errors.New("concept not found")
+
+// get performs a rate-limited SEC GET, retrying throttling (429), server
+// errors and network failures with c.retryBackoff. The caller closes the body.
+func (c *Client) get(url string) (*http.Response, error) {
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", secUserAgent)
+		c.rl.Take()
+		resp, err := c.httpClient.Do(req)
+		retryable := err != nil || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		if !retryable || attempt >= len(c.retryBackoff) {
+			return resp, err
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		time.Sleep(c.retryBackoff[attempt])
 	}
 }
 
@@ -87,6 +125,10 @@ func NewClient() *Client {
 func NewClientWithHTTP(client *http.Client, tickerCIK map[string]int) *Client {
 	return &Client{httpClient: client, tickerCIK: tickerCIK}
 }
+
+// CIK returns the SEC Central Index Key for a ticker. Share classes of one
+// company (GOOG / GOOGL) share a CIK.
+func (c *Client) CIK(symbol string) (int, error) { return c.lookupCIK(symbol) }
 
 // lookupCIK returns the SEC CIK for the given ticker, or an error if not found.
 func (c *Client) lookupCIK(symbol string) (int, error) {
@@ -253,12 +295,20 @@ func (c *Client) fetchTaxonomyQuarterly(cik int, taxonomy string) (epsRes, revRe
 	}
 
 	go func() {
+		var failure error // a request that failed, as opposed to a concept that doesn't exist
 		for _, name := range epsConcepts {
 			d, fd, ps, err := c.fetchConcept(cik, taxonomy, name)
 			if err == nil && len(d) > 0 {
 				epsCh <- taxonomyConceptResult{d, fd, ps, nil}
 				return
 			}
+			if err != nil && !errors.Is(err, errConceptNotFound) && failure == nil {
+				failure = err
+			}
+		}
+		if failure != nil {
+			epsCh <- taxonomyConceptResult{nil, nil, nil, fmt.Errorf("EPS fetch failed in %s: %w", taxonomy, failure)}
+			return
 		}
 		epsCh <- taxonomyConceptResult{nil, nil, nil, fmt.Errorf("no EPS concept found in %s", taxonomy)}
 	}()
@@ -303,9 +353,24 @@ func (c *Client) fetchTaxonomyQuarterly(cik int, taxonomy string) (epsRes, revRe
 	return <-epsCh, <-revCh
 }
 
-// FetchQuarterlyActuals returns the last 5 quarters of EPS (diluted) and revenue
-// for a stock symbol, sourced directly from SEC XBRL filings.
+// FetchQuarterlyActuals returns the last 9 quarters of EPS (diluted) and
+// revenue for a stock symbol (5 to display + 4 prior-year quarters for YoY),
+// sourced directly from SEC XBRL filings.
 func (c *Client) FetchQuarterlyActuals(symbol string) ([]domain.QuarterActual, error) {
+	sorted, err := c.FetchQuarterlyHistory(symbol)
+	if err != nil {
+		return nil, err
+	}
+	if len(sorted) > 9 {
+		sorted = sorted[len(sorted)-9:]
+	}
+	return sorted, nil
+}
+
+// FetchQuarterlyHistory returns every quarter SEC XBRL has for the symbol,
+// oldest → newest. Revenue can be missing for older quarters when the
+// company changed revenue concepts (the concept is chosen by recent use).
+func (c *Client) FetchQuarterlyHistory(symbol string) ([]domain.QuarterActual, error) {
 	cik, err := c.lookupCIK(symbol)
 	if err != nil {
 		return nil, err
@@ -366,14 +431,183 @@ func (c *Client) FetchQuarterlyActuals(symbol string) ([]domain.QuarterActual, e
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Period < sorted[j].Period
 	})
-	// Keep 9 quarters: 5 to display + 4 prior-year quarters needed for YoY comparison.
-	if len(sorted) > 9 {
-		sorted = sorted[len(sorted)-9:]
-	}
 	return sorted, nil
 }
 
+// EarningsRelease is an 8-K with Item 2.02 (Results of Operations and
+// Financial Condition) — the filing that carries an earnings press release.
+type EarningsRelease struct {
+	FilingDate string    // YYYY-MM-DD
+	Accepted   time.Time // EDGAR acceptance time (UTC); zero when unknown
+	ReportDate string    // SEC's "date of report" — the event date, usually = FilingDate
+	Accession  string
+	PrimaryDoc string
+}
+
+// FetchEarningsReleases returns the symbol's original Item 2.02 8-Ks filed on
+// or after since (YYYY-MM-DD), oldest → newest, reading older submissions
+// pages when the recent list doesn't reach back that far.
+func (c *Client) FetchEarningsReleases(symbol, since string) ([]EarningsRelease, error) {
+	cik, err := c.lookupCIK(symbol)
+	if err != nil {
+		return nil, err
+	}
+	subs, err := c.fetchSubmissions(cik)
+	if err != nil {
+		return nil, err
+	}
+	out := earningsReleasesFrom(subs.Filings.Recent, since)
+	for _, f := range subs.Filings.Files {
+		if f.FilingTo != "" && f.FilingTo < since {
+			continue
+		}
+		page, err := c.fetchSubmissionsPage(f.Name)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, earningsReleasesFrom(*page, since)...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].FilingDate < out[j].FilingDate })
+	return out, nil
+}
+
+func earningsReleasesFrom(cols secFilingColumns, since string) []EarningsRelease {
+	at := func(xs []string, i int) string {
+		if i < len(xs) {
+			return xs[i]
+		}
+		return ""
+	}
+	var out []EarningsRelease
+	for i, form := range cols.Form {
+		// Original 8-Ks only: 8-K/A amendments can be dated months later.
+		if form != "8-K" || !strings.Contains(at(cols.Items, i), "2.02") {
+			continue
+		}
+		filed := at(cols.FilingDate, i)
+		if filed < since {
+			continue
+		}
+		r := EarningsRelease{
+			FilingDate: filed,
+			ReportDate: at(cols.ReportDate, i),
+			Accession:  at(cols.AccessionNumber, i),
+			PrimaryDoc: at(cols.PrimaryDocument, i),
+		}
+		if t, err := time.Parse(time.RFC3339, at(cols.AcceptanceTime, i)); err == nil {
+			r.Accepted = t.UTC()
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// fetchSubmissionsPage fetches one older submissions page (filings.files[].name).
+func (c *Client) fetchSubmissionsPage(name string) (*secFilingColumns, error) {
+	resp, err := c.get("https://data.sec.gov/submissions/" + name)
+	if err != nil {
+		return nil, fmt.Errorf("submissions page %s: %w", name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("submissions page %s: HTTP %d", name, resp.StatusCode)
+	}
+	var cols secFilingColumns
+	if err := json.NewDecoder(resp.Body).Decode(&cols); err != nil {
+		return nil, fmt.Errorf("submissions page %s decode: %w", name, err)
+	}
+	return &cols, nil
+}
+
 // secConceptEntry is one data point from the XBRL concept API.
+// unitEntries decodes a concept's units, skipping any unit whose value isn't
+// an array of facts (SEC occasionally serves empty objects there).
+func unitEntries(raw map[string]json.RawMessage) map[string][]secConceptEntry {
+	out := make(map[string][]secConceptEntry, len(raw))
+	for unit, msg := range raw {
+		var entries []secConceptEntry
+		if err := json.Unmarshal(msg, &entries); err == nil {
+			out[unit] = entries
+		}
+	}
+	return out
+}
+
+func countEntries(units map[string][]secConceptEntry) int {
+	n := 0
+	for _, e := range units {
+		n += len(e)
+	}
+	return n
+}
+
+// companyFactsConcept returns one concept's units from the companyfacts
+// endpoint (all of a company's XBRL facts in one document). The parsed
+// document is kept for the few most recent companies, so the EPS and revenue
+// concepts of one company cost a single request.
+func (c *Client) companyFactsConcept(cik int, taxonomy, concept string) (map[string][]secConceptEntry, error) {
+	facts, err := c.companyFacts(cik)
+	if err != nil {
+		return nil, err
+	}
+	msg, ok := facts[taxonomy][concept]
+	if !ok {
+		return nil, nil
+	}
+	var body struct {
+		Units map[string]json.RawMessage `json:"units"`
+	}
+	if err := json.Unmarshal(msg, &body); err != nil {
+		return nil, fmt.Errorf("companyfacts %s decode: %w", concept, err)
+	}
+	return unitEntries(body.Units), nil
+}
+
+// companyFactsKeep is how many companies' companyfacts documents stay cached.
+const companyFactsKeep = 8
+
+func (c *Client) companyFacts(cik int) (map[string]map[string]json.RawMessage, error) {
+	c.factsMu.Lock()
+	for _, f := range c.factsCache {
+		if f.cik == cik {
+			c.factsMu.Unlock()
+			return f.facts, nil
+		}
+	}
+	c.factsMu.Unlock()
+
+	resp, err := c.get(fmt.Sprintf("https://data.sec.gov/api/xbrl/companyfacts/CIK%010d.json", cik))
+	if err != nil {
+		return nil, fmt.Errorf("companyfacts: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("companyfacts HTTP %d", resp.StatusCode)
+	}
+	var doc struct {
+		Facts map[string]map[string]json.RawMessage `json:"facts"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		return nil, fmt.Errorf("companyfacts decode: %w", err)
+	}
+
+	c.factsMu.Lock()
+	c.factsCache = append(c.factsCache, cachedFacts{cik: cik, facts: doc.Facts})
+	if len(c.factsCache) > companyFactsKeep {
+		c.factsCache = c.factsCache[len(c.factsCache)-companyFactsKeep:]
+	}
+	c.factsMu.Unlock()
+	return doc.Facts, nil
+}
+
+type cachedFacts struct {
+	cik   int
+	facts map[string]map[string]json.RawMessage // taxonomy → concept → raw concept JSON
+}
+
 type secConceptEntry struct {
 	Start string  `json:"start"` // fiscal period start date: "2024-07-01"
 	End   string  `json:"end"`   // fiscal period end date: "2024-09-28"
@@ -408,20 +642,14 @@ func (c *Client) fetchConcept(cik int, taxonomy, concept string) (map[string]flo
 		"https://data.sec.gov/api/xbrl/companyconcept/CIK%010d/%s/%s.json",
 		cik, taxonomy, concept,
 	)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	req.Header.Set("User-Agent", secUserAgent)
-	c.rl.Take()
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.get(url)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("HTTP GET: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil, nil, fmt.Errorf("concept %s not found (404)", concept)
+		return nil, nil, nil, fmt.Errorf("%s: %w (404)", concept, errConceptNotFound)
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -429,10 +657,20 @@ func (c *Client) fetchConcept(cik int, taxonomy, concept string) (map[string]flo
 	}
 
 	var raw struct {
-		Units map[string][]secConceptEntry `json:"units"`
+		Units map[string]json.RawMessage `json:"units"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, nil, nil, fmt.Errorf("decode: %w", err)
+	}
+	units := unitEntries(raw.Units)
+	if countEntries(units) == 0 {
+		// companyconcept sometimes serves a concept's units as empty objects
+		// ({"USD/shares": {}}) although the data exists — seen for KO, ABT,
+		// PYPL, F. companyfacts carries the same facts; use it instead.
+		units, err = c.companyFactsConcept(cik, taxonomy, concept)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	acceptedForms, annualForms := taxonomyForms(taxonomy)
@@ -457,7 +695,7 @@ func (c *Client) fetchConcept(cik int, taxonomy, concept string) (map[string]flo
 	var annuals []periodRec
 	var halves []periodRec // 6-month YTD entries (IFRS half-year reporters)
 
-	for _, entries := range raw.Units {
+	for _, entries := range units {
 		for _, e := range entries {
 			if !acceptedForms[e.Form] {
 				continue
@@ -656,15 +894,27 @@ type secSubmissionsResponse struct {
 	SIC            string `json:"sic"`            // 4-digit SIC code as string, e.g. "3571"
 	SICDescription string `json:"sicDescription"` // e.g. "ELECTRONIC COMPUTERS"
 	Filings        struct {
-		Recent struct {
-			Form            []string `json:"form"`
-			FilingDate      []string `json:"filingDate"`
-			AccessionNumber []string `json:"accessionNumber"`
-			PrimaryDocument []string `json:"primaryDocument"`
-			Items           []string `json:"items"`                 // e.g. "2.02,9.01"
-			PrimaryDocDesc  []string `json:"primaryDocDescription"` // e.g. "EARNINGS RELEASE"
-		} `json:"recent"`
+		Recent secFilingColumns `json:"recent"`
+		// Older filings live in extra pages, e.g. CIK0000320193-submissions-001.json.
+		Files []struct {
+			Name       string `json:"name"`
+			FilingFrom string `json:"filingFrom"`
+			FilingTo   string `json:"filingTo"`
+		} `json:"files"`
 	} `json:"filings"`
+}
+
+// secFilingColumns is SEC's column-oriented filing list, used both for
+// filings.recent and for each older submissions page.
+type secFilingColumns struct {
+	Form            []string `json:"form"`
+	FilingDate      []string `json:"filingDate"`
+	AcceptanceTime  []string `json:"acceptanceDateTime"` // UTC, e.g. "2026-07-31T00:30:28.000Z"
+	ReportDate      []string `json:"reportDate"`
+	AccessionNumber []string `json:"accessionNumber"`
+	PrimaryDocument []string `json:"primaryDocument"`
+	Items           []string `json:"items"`                 // e.g. "2.02,9.01"
+	PrimaryDocDesc  []string `json:"primaryDocDescription"` // e.g. "EARNINGS RELEASE"
 }
 
 // FetchEntitySIC returns the SIC code (numeric) and its description for the given
@@ -853,10 +1103,7 @@ func (c *Client) fetchSubmissions(cik int) (*secSubmissionsResponse, error) {
 	c.subsCacheMu.Unlock()
 
 	subsURL := fmt.Sprintf("https://data.sec.gov/submissions/CIK%010d.json", cik)
-	req, _ := http.NewRequest("GET", subsURL, nil)
-	req.Header.Set("User-Agent", secUserAgent)
-	c.rl.Take()
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.get(subsURL)
 	if err != nil {
 		return nil, fmt.Errorf("submissions fetch: %w", err)
 	}

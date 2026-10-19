@@ -10,6 +10,9 @@ type CalendarRow struct {
 	FiscalQuarterEnding string
 	EPSForecast         float64 // consensus EPS estimate for the current quarter
 	LastYearEPS         float64 // same quarter last year actual EPS
+	// EPSSurprisePct is the reported EPS surprise vs consensus, in %. Only set
+	// for dates that have already reported (Nasdaq's "surprise" column).
+	EPSSurprisePct *float64
 }
 
 // QuarterActual holds one quarter of actual reported figures.
@@ -74,7 +77,8 @@ type ForwardQuarter struct {
 
 // PricePoint is a single trading day's OHLC snapshot.
 type PricePoint struct {
-	Date  time.Time
-	Open  float64
-	Close float64
+	Date   time.Time
+	Open   float64
+	Close  float64
+	Volume float64 // shares traded; 0 when the source doesn't report it
 }

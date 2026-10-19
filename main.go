@@ -1,18 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"quarterly_results/internal/domain"
 	"quarterly_results/internal/enrich"
+	"quarterly_results/internal/events"
 	"quarterly_results/internal/exchange"
 	"quarterly_results/internal/logging"
 	"quarterly_results/internal/macro"
@@ -21,6 +24,8 @@ import (
 	"quarterly_results/internal/source/finnhub"
 	"quarterly_results/internal/source/llmagent"
 	"quarterly_results/internal/source/nasdaq"
+	"quarterly_results/internal/source/pead"
+	"quarterly_results/internal/source/sec"
 	"quarterly_results/internal/source/yahoo"
 	"quarterly_results/internal/tracking"
 )
@@ -46,11 +51,49 @@ func main() {
 	logPredsFlag := flag.Bool("log-predictions", false, "Append each upcoming report's Rating (and LLM rating) to --predictions-file")
 	predFileFlag := flag.String("predictions-file", tracking.DefaultPath, "JSON-lines prediction log for --log-predictions / --score-predictions")
 	scorePredsFlag := flag.Bool("score-predictions", false, "Score the prediction log against actual earnings reactions, then exit")
+	exportEventsFlag := flag.String("export-events", "", "Append point-in-time post-earnings events (features + drift labels) for every enriched stock to this JSON-lines file, then print the drift evaluation")
+	evalEventsFlag := flag.String("evaluate-events", "", "Evaluate the rule-based drift prediction on an events file from --export-events, then exit")
+	buildUniverseFlag := flag.String("build-universe", "", "Write the largest US stocks by market cap (Nasdaq screener) to this CSV, then exit")
+	universeSizeFlag := flag.Int("universe-size", 1000, "Number of stocks for --build-universe")
+	buildDatasetFlag := flag.String("build-dataset", "", "Build a multi-year post-earnings event dataset (SEC + Yahoo only) into this JSON-lines file for every --universe symbol; resumable")
+	universeFlag := flag.String("universe", "universe.csv", "Universe CSV for --build-dataset (from --build-universe)")
+	yearsFlag := flag.Int("years", 10, "Years of history for --build-dataset")
+	workersFlag := flag.Int("workers", 4, "Concurrent symbols for --build-dataset (SEC requests stay rate-limited)")
+	backfillFlag := flag.String("backfill-consensus", "", "Add Nasdaq consensus EPS surprise to the events in this file (one paced, cached request per date)")
+	consensusFromFlag := flag.String("consensus-from", "2021-01-01", "Earliest announcement date for --backfill-consensus")
+	postReleaseFlag := flag.Bool("post-release", false, "Add post-release signals for reports already out: Signal 1 (at the release) and Signal 2 (at the reaction-day open)")
+	eventsDatasetFlag := flag.String("events-dataset", "data/events_10y.jsonl", "Event history used to train/calibrate the post-release signals")
 	flag.Parse()
+
+	if *backfillFlag != "" {
+		if err := backfillConsensus(*backfillFlag, *consensusFromFlag); err != nil {
+			log.Fatalf("--backfill-consensus: %v", err)
+		}
+		return
+	}
+
+	if *buildUniverseFlag != "" {
+		if err := buildUniverse(*buildUniverseFlag, *universeSizeFlag); err != nil {
+			log.Fatalf("--build-universe: %v", err)
+		}
+		return
+	}
+	if *buildDatasetFlag != "" {
+		if err := buildDataset(*buildDatasetFlag, *universeFlag, *yearsFlag, *workersFlag); err != nil {
+			log.Fatalf("--build-dataset: %v", err)
+		}
+		return
+	}
 
 	if *scorePredsFlag {
 		if err := scorePredictions(*predFileFlag, *outputFmt); err != nil {
 			log.Fatalf("--score-predictions: %v", err)
+		}
+		return
+	}
+	if *evalEventsFlag != "" {
+		if err := evaluateEvents(*evalEventsFlag, *outputFmt); err != nil {
+			log.Fatalf("--evaluate-events: %v", err)
 		}
 		return
 	}
@@ -124,16 +167,16 @@ func main() {
 		logging.Logf("Fetching earnings calendar from Finnhub (%s, %s → %s) ...", exCfg.Exchange, *fromStr, *toStr)
 		calProvider = finnhub.NewCalendarClient(finnhub.NewClient(), exCfg)
 	}
-	events, calMap, err := calProvider.FetchEarningsCalendar(from, to)
+	calEvents, calMap, err := calProvider.FetchEarningsCalendar(from, to)
 	if err != nil {
 		log.Fatalf("Failed to fetch earnings calendar: %v", err)
 	}
-	logging.Logf("Total events fetched: %d", len(events))
+	logging.Logf("Total events fetched: %d", len(calEvents))
 
 	// ── Step 2: Filter by symbol or market cap ────────────────────────────────
 	var qualified []domain.EarningsEvent
 	if filterSymbol != "" {
-		for _, e := range events {
+		for _, e := range calEvents {
 			if strings.ToUpper(e.Symbol) == filterSymbol {
 				qualified = append(qualified, e)
 				break
@@ -146,7 +189,7 @@ func main() {
 			qualified = []domain.EarningsEvent{{Symbol: filterSymbol}}
 		}
 	} else {
-		qualified = filterByMarketCap(events, minCap, maxCap)
+		qualified = filterByMarketCap(calEvents, minCap, maxCap)
 		if maxCap > 0 {
 			logging.Logf("Qualifying ($%.0fB–$%.0fB market cap): %d", *minCapB, *maxCapB, len(qualified))
 		} else {
@@ -214,23 +257,55 @@ func main() {
 	if *logPredsFlag {
 		predLog = tracking.NewLog(*predFileFlag)
 	}
+	var exporter *events.Exporter
+	if *exportEventsFlag != "" {
+		exporter = events.NewExporter(&http.Client{Timeout: 30 * time.Second}, string(exCfg.Exchange))
+	}
 
 	// Assemble each stock as it finishes and forward to the output channel.
 	resultCh := make(chan domain.EarningsResult, len(preliminary))
 	go func() {
-		logged := 0
+		logged, exported := 0, 0
+		var held []domain.EarningsResult // --post-release scores the whole batch at once
 		for es := range enricher.EnrichStream(preliminary, calMap, macroCal) {
 			r := report.AssembleResult(prelimMap[es.Symbol], es.Summary)
 			if predLog != nil {
 				logged += logPrediction(predLog, r, exCfg)
 			}
+			if exporter != nil {
+				exported += exportEvents(exporter, *exportEventsFlag, es.Summary)
+			}
+			if *postReleaseFlag {
+				held = append(held, r)
+				continue
+			}
 			resultCh <- r
+		}
+		if *postReleaseFlag {
+			held = attachPostRelease(held, *eventsDatasetFlag)
+			for _, r := range held {
+				if predLog != nil {
+					logged += logPostRelease(predLog, r, exCfg)
+				}
+				resultCh <- r
+			}
 		}
 		if predLog != nil {
 			logging.Logf("Logged %d prediction(s) to %s", logged, predLog.Path())
 		}
+		if exporter != nil {
+			logging.Logf("Exported %d event(s) to %s", exported, *exportEventsFlag)
+		}
 		close(resultCh)
 	}()
+
+	if exporter != nil {
+		defer func() {
+			if err := evaluateEvents(*exportEventsFlag, "table"); err != nil {
+				logging.Logf("Warning: evaluating %s: %v", *exportEventsFlag, err)
+			}
+		}()
+	}
 
 	switch strings.ToLower(*outputFmt) {
 	case "json":
@@ -302,18 +377,155 @@ func filterByMarketCap(events []domain.EarningsEvent, minCap, maxCap float64) []
 	return out
 }
 
-// logPrediction appends r to the prediction log when it is a pre-earnings
-// call and reports how many records were written (0 or 1).
+// logPrediction appends r's predictions to the log — the pre-release
+// reaction call and, for a report just released, the post-reaction drift
+// call — and reports how many records were written.
 func logPrediction(l *tracking.Log, r domain.EarningsResult, cfg exchange.Config) int {
-	rec, ok := tracking.NewRecord(r, cfg, time.Now())
-	if !ok {
+	now, n := time.Now(), 0
+	for _, build := range []func(domain.EarningsResult, exchange.Config, time.Time) (tracking.Record, bool){
+		tracking.NewRecord, tracking.NewDriftRecord,
+	} {
+		rec, ok := build(r, cfg, now)
+		if !ok {
+			continue
+		}
+		if err := l.Append(rec); err != nil {
+			logging.Logf("Warning: could not log prediction for %s: %v", r.Symbol, err)
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// attachPostRelease scores released reports with the post-release signals
+// (sibling llm-earnings-agent `pead live`) and attaches them to the results.
+func attachPostRelease(results []domain.EarningsResult, eventsPath string) []domain.EarningsResult {
+	released := 0
+	for _, r := range results {
+		if r.EPSSurprisePct != nil {
+			released++
+		}
+	}
+	if released == 0 {
+		logging.Logf("Post-release: no reports with a consensus surprise yet (signals need the report to be out)")
+		return results
+	}
+	logging.Logf("Post-release: scoring %d released report(s) against %s ...", released, eventsPath)
+	signals, err := pead.Score(context.Background(), eventsPath, results)
+	if err != nil {
+		logging.Logf("Warning: post-release signals unavailable: %v", err)
+		return results
+	}
+	for i := range results {
+		if s, ok := signals[strings.ToUpper(results[i].Symbol)]; ok {
+			s := s
+			results[i].PostRelease = &s
+		}
+	}
+	return results
+}
+
+// logPostRelease logs Signal 1 and (once the open is known) Signal 2.
+func logPostRelease(l *tracking.Log, r domain.EarningsResult, cfg exchange.Config) int {
+	now, n := time.Now(), 0
+	for _, build := range []func(domain.EarningsResult, exchange.Config, time.Time) (tracking.Record, bool){
+		tracking.NewReleaseRecord, tracking.NewIntradayRecord,
+	} {
+		if rec, ok := build(r, cfg, now); ok {
+			if err := l.Append(rec); err != nil {
+				logging.Logf("Warning: could not log post-release signal for %s: %v", r.Symbol, err)
+				continue
+			}
+			n++
+		}
+	}
+	return n
+}
+
+// exportEvents appends one stock's historical events to path and reports how
+// many were written.
+func exportEvents(x *events.Exporter, path string, s *domain.FinancialSummary) int {
+	evs, err := x.Events(s, time.Now())
+	if err != nil {
+		logging.Logf("Warning: event export: %v", err)
 		return 0
 	}
-	if err := l.Append(rec); err != nil {
-		logging.Logf("Warning: could not log prediction for %s: %v", r.Symbol, err)
+	if err := events.Append(path, evs); err != nil {
+		logging.Logf("Warning: event export to %s: %v", path, err)
 		return 0
 	}
-	return 1
+	return len(evs)
+}
+
+// buildUniverse writes the n largest US stocks by market cap to a CSV.
+func buildUniverse(path string, n int) error {
+	stocks, err := nasdaq.FetchLargestUS(&http.Client{Timeout: 60 * time.Second}, n)
+	if err != nil {
+		return err
+	}
+	if err := events.WriteUniverse(path, stocks); err != nil {
+		return err
+	}
+	if len(stocks) > 0 {
+		logging.Logf("Wrote %d stocks to %s (market cap $%.0fB … $%.1fB)", len(stocks), path,
+			stocks[0].MarketCapB, stocks[len(stocks)-1].MarketCapB)
+	}
+	return nil
+}
+
+// buildDataset builds the multi-year event dataset for every universe symbol
+// (resuming from out+".done"), then prints the drift evaluation for out.
+func buildDataset(out, universePath string, years, workers int) error {
+	symbols, err := events.ReadUniverse(universePath)
+	if err != nil {
+		return err
+	}
+	secClient := sec.NewClient()
+	if err := secClient.LoadTickerMap(); err != nil {
+		return fmt.Errorf("SEC ticker map: %w", err)
+	}
+	now := time.Now()
+	b := events.NewBuilder(secClient, &http.Client{Timeout: 60 * time.Second}, years, now)
+	logging.Logf("Building %d-year event dataset for %d symbols → %s (%d workers) ...", years, len(symbols), out, workers)
+	stats, err := events.BuildDataset(b, symbols, out, workers, now, logging.Logf)
+	if err != nil {
+		return err
+	}
+	logging.Logf("Done: %d built, %d without events, %d failed, %d duplicate share classes, %d resumed; %d new events",
+		stats.Built, stats.Empty, stats.Failed, stats.Duplicates, stats.Resumed, stats.Events)
+	return evaluateEvents(out, "table")
+}
+
+// backfillConsensus adds Nasdaq consensus surprises to an events file, caching
+// each calendar date under data/nasdaq_calendar next to the file.
+func backfillConsensus(path, from string) error {
+	nc := nasdaq.NewClient()
+	cache := filepath.Join(filepath.Dir(path), "nasdaq_calendar")
+	logging.Logf("Backfilling Nasdaq consensus for events since %s (cache %s, ~1.5 s per new date) ...", from, cache)
+	stats, err := events.BackfillConsensus(path, from, nc.FetchReported, cache, 1200*time.Millisecond, logging.Logf)
+	if err != nil {
+		return err
+	}
+	logging.Logf("Done: %d dates (%d fetched, %d cached, %d errors); %d events matched, %d unmatched",
+		stats.Dates, stats.Fetched, stats.Cached, stats.FetchErrs, stats.Matched, stats.Unmatched)
+	return nil
+}
+
+// evaluateEvents scores the rule-based drift prediction on an events file.
+func evaluateEvents(path, outputFmt string) error {
+	evs, err := events.Load(path)
+	if err != nil {
+		return err
+	}
+	reports := events.Evaluate(evs)
+	if strings.ToLower(outputFmt) == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(reports)
+	}
+	fmt.Print(events.FormatEvaluation(reports, len(evs)))
+	return nil
 }
 
 // scorePredictions scores the prediction log against the reactions that

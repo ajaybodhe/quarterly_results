@@ -48,3 +48,26 @@ func TestSICSectorGroup_BankVsTechDiffer(t *testing.T) {
 		t.Errorf("tech and bank should be in different sectors (both got %d)", techGroup)
 	}
 }
+
+func TestSectorETFForSIC_Overrides(t *testing.T) {
+	cases := map[int]string{
+		2834: "XLV",  // JNJ, PFE, MRK
+		2836: "XBI",  // biological products
+		6324: "XLV",  // UNH
+		6022: "KBE",  // state commercial banks
+		6211: "XLF",  // broker-dealers (GS)
+		6798: "XLRE", // REITs
+		4813: "XLC",  // telecom
+		5331: "XLP",  // variety stores (WMT, COST)
+		5961: "XLY",  // catalog & mail-order (AMZN)
+		8711: "XLI",  // engineering services
+		8062: "XLV",  // hospitals
+		3674: "SOXX", // semiconductors
+		7372: "XLK",  // software
+	}
+	for sic, want := range cases {
+		if got := sectorETFForSIC(sic); got != want {
+			t.Errorf("sectorETFForSIC(%d) = %s, want %s", sic, got, want)
+		}
+	}
+}

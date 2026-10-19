@@ -201,3 +201,159 @@ func TestScore_LLMAndSubAgentStats(t *testing.T) {
 		t.Errorf("unexpected report text:\n%s", out)
 	}
 }
+
+func TestSummarize_WilsonInterval(t *testing.T) {
+	calls := []Call{{"Positive", 2}, {"Positive", 3}, {"Negative", 1}, {"Neutral", 5}}
+	st := Summarize("x", calls)
+	if st.N != 4 || st.Directional != 3 || st.Hits != 2 {
+		t.Fatalf("stats = %+v", st)
+	}
+	// 2/3 with n=3: Wilson 95% ≈ [0.21, 0.94].
+	if math.Abs(st.HitRateLow-0.208) > 0.01 || math.Abs(st.HitRateHigh-0.939) > 0.01 {
+		t.Errorf("Wilson interval = [%.3f, %.3f]", st.HitRateLow, st.HitRateHigh)
+	}
+	if Baseline([]string{"Positive", "Positive", "Negative"}) != 2.0/3 {
+		t.Error("baseline should be the most common label's share")
+	}
+}
+
+// ── drift horizon ────────────────────────────────────────────────────────────
+
+// dailyBars builds n consecutive daily bars from start with closes from f(i).
+func dailyBars(start string, n int, f func(i int) float64) []domain.PricePoint {
+	t0, _ := time.Parse("2006-01-02", start)
+	out := make([]domain.PricePoint, n)
+	for i := range out {
+		out[i] = domain.PricePoint{Date: t0.AddDate(0, 0, i), Close: f(i)}
+	}
+	return out
+}
+
+func TestNewDriftRecord(t *testing.T) {
+	r := domain.EarningsResult{
+		Symbol: "AAPL", EarningsTime: "amc",
+		DriftFeatures:       &domain.DriftFeatures{AnnouncementDate: "2026-10-29", ReactionDay: "2026-10-30", SectorETF: "XLK"},
+		DriftRecommendation: &domain.Recommendation{Label: "Positive", Score: 30, Confidence: 0.7},
+		LLMRating:           &domain.LLMRating{Rating: domain.LLMRatingScore{Label: "Negative"}, Metadata: domain.LLMMetadata{PromptVersion: "v2"}},
+	}
+	rec, ok := NewDriftRecord(r, exchange.DefaultUSConfig, at("2026-10-30 17:00"))
+	if !ok || rec.Horizon != HorizonDrift || rec.ReactionDay != "2026-10-30" || rec.SectorETF != "XLK" ||
+		rec.Rating.Label != "Positive" || rec.LLM.Label != "Negative" || rec.LLM.PromptVersion != "v2" {
+		t.Errorf("drift record = %+v", rec)
+	}
+	if _, ok := NewDriftRecord(domain.EarningsResult{Symbol: "X"}, exchange.DefaultUSConfig, at("2026-10-30 17:00")); ok {
+		t.Error("no drift prediction → no record")
+	}
+}
+
+func TestScore_DriftUsesEarliestRecordAndSectorAdjusts(t *testing.T) {
+	// Stock +1/bar from 100; ETF flat except +2% by bar 5 from the start.
+	stock := dailyBars("2026-10-28", 40, func(i int) float64 { return 100 + float64(i) })
+	etf := dailyBars("2026-10-28", 40, func(i int) float64 {
+		if i >= 7 {
+			return 51
+		}
+		return 50
+	})
+	early := Record{LoggedAt: at("2026-10-30 17:00"), Horizon: HorizonDrift, Symbol: "AAPL", Exchange: "US",
+		ReactionDay: "2026-10-30", SectorETF: "XLK", Rating: &Prediction{Label: "Positive"}}
+	late := early
+	late.LoggedAt = at("2026-11-03 10:00")
+	late.Rating = &Prediction{Label: "Negative"}
+	rep := Score([]Record{late, early}, fetcher(map[string][]domain.PricePoint{"AAPL": stock, "XLK": etf}), at("2026-12-31 10:00"))
+
+	if len(rep.DriftOutcomes) != 2 || rep.DriftPending != 0 {
+		t.Fatalf("drift outcomes = %+v pending %d", rep.DriftOutcomes, rep.DriftPending)
+	}
+	d5 := rep.DriftOutcomes[0]
+	// Earliest record counts; window starts at the 10-30 close (bar 2 = 102) → bar 7 = 107.
+	if d5.Bars != 5 || d5.Start != "2026-10-30" || d5.Rating.Label != "Positive" {
+		t.Errorf("drift5 outcome = %+v", d5)
+	}
+	if math.Abs(d5.RetPct-(5.0/102*100)) > 1e-9 || !d5.Adjusted || math.Abs(d5.AdjRetPct-(d5.RetPct-2)) > 1e-9 {
+		t.Errorf("drift5 returns = %+v", d5)
+	}
+	if got := rep.DriftPredictors[0]; got.Name != "drift5: rules" || got.Hits != 1 {
+		t.Errorf("drift5 stats = %+v", got)
+	}
+	if !strings.Contains(FormatReport(rep, "p.jsonl"), "drift20: rules") {
+		t.Error("report should include the drift table")
+	}
+}
+
+func TestScore_DriftPendingUntilWindowCompletes(t *testing.T) {
+	stock := dailyBars("2026-10-28", 8, func(i int) float64 { return 100 })
+	r := Record{LoggedAt: at("2026-10-30 17:00"), Horizon: HorizonDrift, Symbol: "AAPL", Exchange: "US",
+		ReactionDay: "2026-10-30", Rating: &Prediction{Label: "Positive"}}
+	rep := Score([]Record{r}, fetcher(map[string][]domain.PricePoint{"AAPL": stock}), at("2026-11-05 10:00"))
+	// 5 bars after the start exist (bar 2 → bar 7) but not 20.
+	if len(rep.DriftOutcomes) != 1 || rep.DriftPending != 1 || rep.DriftOutcomes[0].Adjusted {
+		t.Errorf("outcomes %+v pending %d", rep.DriftOutcomes, rep.DriftPending)
+	}
+}
+
+// ── post-release signals ─────────────────────────────────────────────────────
+
+func postReleaseResult() domain.EarningsResult {
+	hit := 0.54
+	return domain.EarningsResult{
+		Symbol: "PGR", EarningsTime: "bmo",
+		PostRelease: &domain.PostRelease{
+			Symbol: "PGR", AnnouncementDate: "2026-10-14", ReactionDay: "2026-10-14",
+			Signal1: &domain.ReleaseSignal{SurprisePct: 3.1, PUp: 0.40, N: 2424, Label: "Negative"},
+			Signal2: &domain.OpenSignal{PredictedPct: 1.2, Decile: 10, Lean: "LONG", HistMeanPct: 1.06, HistHit: &hit},
+		},
+	}
+}
+
+func TestNewPostReleaseRecords(t *testing.T) {
+	now := at("2026-10-14 09:45")
+	rel, ok := NewReleaseRecord(postReleaseResult(), exchange.DefaultUSConfig, now)
+	if !ok || rel.Horizon != HorizonRelease || rel.Rating.Label != "Negative" || rel.EarningsDate != "2026-10-14" {
+		t.Errorf("release record = %+v", rel)
+	}
+	in, ok := NewIntradayRecord(postReleaseResult(), exchange.DefaultUSConfig, now)
+	if !ok || in.Horizon != HorizonIntraday || in.Rating.Label != "Positive" || in.Decile != 10 {
+		t.Errorf("intraday record = %+v", in)
+	}
+	noOpen := postReleaseResult()
+	noOpen.PostRelease.Signal2 = nil
+	if _, ok := NewIntradayRecord(noOpen, exchange.DefaultUSConfig, now); ok {
+		t.Error("no Signal 2 → no intraday record")
+	}
+}
+
+func TestScore_PostReleaseSignals(t *testing.T) {
+	day := func(d string, o, c float64) domain.PricePoint {
+		t, _ := time.Parse("2006-01-02", d)
+		return domain.PricePoint{Date: t, Open: o, Close: c}
+	}
+	pgr := []domain.PricePoint{day("2026-10-13", 200, 200), day("2026-10-14", 190, 195)} // −2.5% reaction, +2.63% open→close
+	spy := []domain.PricePoint{day("2026-10-13", 500, 500), day("2026-10-14", 500, 505)} // +1% open→close
+	now := at("2026-10-14 09:45")
+	rel, _ := NewReleaseRecord(postReleaseResult(), exchange.DefaultUSConfig, now)
+	in, _ := NewIntradayRecord(postReleaseResult(), exchange.DefaultUSConfig, now)
+	late, _ := NewIntradayRecord(postReleaseResult(), exchange.DefaultUSConfig, at("2026-10-14 17:00"))
+	late.Symbol = "LATE"
+
+	rep := Score([]Record{rel, in, late}, fetcher(map[string][]domain.PricePoint{"PGR": pgr, "LATE": pgr, "SPY": spy}), at("2026-10-15 09:00"))
+	if len(rep.PostReleaseOutcomes) != 2 || rep.PostReleaseLate != 1 {
+		t.Fatalf("outcomes %+v late %d pending %d", rep.PostReleaseOutcomes, rep.PostReleaseLate, rep.PostReleasePending)
+	}
+	got := map[string]PostReleaseOutcome{}
+	for _, o := range rep.PostReleaseOutcomes {
+		got[o.Horizon] = o
+	}
+	if math.Abs(got[HorizonRelease].RetPct-(-2.5)) > 1e-9 {
+		t.Errorf("signal 1 reaction = %v", got[HorizonRelease].RetPct)
+	}
+	if want := (195.0/190-1)*100 - 1; math.Abs(got[HorizonIntraday].RetPct-want) > 1e-9 {
+		t.Errorf("signal 2 open→close−SPY = %v, want %v", got[HorizonIntraday].RetPct, want)
+	}
+	if s := rep.PostReleasePredictors; len(s) != 2 || s[0].Hits != 1 || s[1].Hits != 1 {
+		t.Errorf("post-release stats = %+v", s)
+	}
+	if !strings.Contains(FormatReport(rep, "p.jsonl"), "signal 2: open→close−SPY") {
+		t.Error("report should include the post-release table")
+	}
+}
