@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,16 +22,24 @@ import (
 
 // Score sends results to `pead live --output json` and returns the signals
 // keyed by upper-case symbol. Results without a consensus surprise are
-// ignored by the agent.
-func Score(ctx context.Context, eventsPath string, results []domain.EarningsResult) (map[string]domain.PostRelease, error) {
+// ignored by the agent — unless web is set, in which case the agent first
+// reads the surprise (and guidance) for released reports from the web.
+func Score(ctx context.Context, eventsPath string, results []domain.EarningsResult, web bool) (map[string]domain.PostRelease, error) {
 	payload, err := json.Marshal(results)
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	timeout := 10 * time.Minute
+	args := []string{"pead", "live", "--events", eventsPath, "--payload", "-", "--output", "json"}
+	if web {
+		timeout = 30 * time.Minute // LLM + web search, ~2 min per report, 3 at a time
+		args = append(args, "--web", "--web-cache", filepath.Join(filepath.Dir(eventsPath), "web_earnings"))
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	bin := llmagent.Binary()
-	cmd := exec.CommandContext(ctx, bin, "pead", "live", "--events", eventsPath, "--payload", "-", "--output", "json")
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Stderr = os.Stderr // progress and web-backup notes
 	cmd.Stdin = bytes.NewReader(payload)
 	out, err := cmd.Output()
 	if err != nil {
@@ -38,6 +48,9 @@ func Score(ctx context.Context, eventsPath string, results []domain.EarningsResu
 			msg := strings.TrimSpace(string(exitErr.Stderr))
 			if len(msg) > 500 {
 				msg = msg[len(msg)-500:]
+			}
+			if msg == "" {
+				msg = "see its output above"
 			}
 			return nil, fmt.Errorf("%s pead live exit %d: %s", bin, exitErr.ExitCode(), msg)
 		}

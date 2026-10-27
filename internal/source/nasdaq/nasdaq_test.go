@@ -168,6 +168,27 @@ func TestParseSurprise(t *testing.T) {
 	}
 }
 
+func TestSurprisePctFallback(t *testing.T) {
+	cases := []struct {
+		surprise, eps, forecast string
+		want                    *float64
+	}{
+		{"3.37", "$1.51", "$1.61", ptr(3.37)}, // Nasdaq's value wins
+		{"N/A", "$1.22", "$1.22", ptr(0)},     // in-line: Nasdaq leaves it blank
+		{"N/A", "$1.51", "$1.61", nil},        // CDNS 2026-10-26: actual was last year's placeholder
+		{"N/A", "N/A", "$1.61", nil},          // not reported yet
+		{"N/A", "$0.00", "$0.00", nil},        // no forecast
+	}
+	for _, c := range cases {
+		got := surprisePct(c.surprise, c.eps, c.forecast)
+		if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
+			t.Errorf("surprisePct(%q, %q, %q) = %v, want %v", c.surprise, c.eps, c.forecast, got, c.want)
+		}
+	}
+}
+
+func ptr(v float64) *float64 { return &v }
+
 func TestLargestUS(t *testing.T) {
 	rows := []screenerRow{
 		{Symbol: "AAPL", MarketCap: "3000000000000", Country: "United States"},

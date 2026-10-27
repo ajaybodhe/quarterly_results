@@ -177,7 +177,9 @@ domain  ← shared data model used by every layer
 - **Signal 1:** the historical reaction-day outcome for this size of consensus surprise. `EarningsResult.EPSSurprisePct` comes from the calendar's `% Surprise`.
 - **Signal 2:** a GBDT decile for open→close minus SPY. It only exists once the reaction-day open does, i.e. when `drift_features` are present.
 
-With `--log-predictions` they are logged as horizons `release` and `intraday` (`tracking/postrelease.go`). They are scored from the earliest record logged before 16:00 local time on the reaction day: Signal 1 on the reaction-day return (±1% deadband), Signal 2 on the sign of open→close minus SPY. Research results and the paper rationale are in the README's "Post-release signals" section.
+With `--log-predictions` they are logged as horizons `release` and `intraday` (`tracking/postrelease.go`). `--web-earnings` adds a backup for released reports whose calendar row has no surprise yet: `pead live --web` asks Claude with web search (`pead/webearnings.py`) for EPS vs the Zacks consensus, revenue and guidance, recomputes the surprise and uses it only if a source URL is given and the quarter matches (`ReleaseSignal.SurpriseSource`, `Record.Source`, `PostRelease.Web`; cache `data/web_earnings/`). `nasdaq.surprisePct` fills a blank surprise only for an exact in-line report — other blanks can carry last year's EPS as a placeholder actual.
+
+They are scored from the earliest record logged before 16:00 local time on the reaction day: Signal 1 on the reaction-day return (±1% deadband), Signal 2 on the sign of open→close minus SPY. Research results and the paper rationale are in the README's "Post-release signals" section.
 
 **Volume:** `domain.PricePoint.Volume` comes from Yahoo's chart `volume` array; `indicators.AbnormalVolume` divides a window's mean volume by the prior 20-bar mean. `sector.ETFPrices` caches each sector ETF's history per process (shared by momentum, the backtest and drift labels).
 

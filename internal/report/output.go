@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"text/tabwriter"
 
@@ -415,8 +416,12 @@ func writePostRelease(w io.Writer, p *domain.PostRelease) {
 		if mark == "" {
 			mark = "•"
 		}
-		fmt.Fprintf(w, "Signal 1 %s %-9s  surprise %+.1f%% → reaction day up %.0f%% of the time (n=%d, mean %+.2f%%)\n",
-			mark, s.Label, s.SurprisePct, s.PUp*100, s.N, s.MeanReactionPct)
+		src := ""
+		if s.SurpriseSource != "" && s.SurpriseSource != "nasdaq" {
+			src = " [" + s.SurpriseSource + "]"
+		}
+		fmt.Fprintf(w, "Signal 1 %s %-9s  surprise %+.1f%%%s → reaction day up %.0f%% of the time (n=%d, mean %+.2f%%)\n",
+			mark, s.Label, s.SurprisePct, src, s.PUp*100, s.N, s.MeanReactionPct)
 	}
 	if s := p.Signal2; s != nil {
 		hit := "—"
@@ -428,6 +433,116 @@ func writePostRelease(w io.Writer, p *domain.PostRelease) {
 	} else if p.Signal1 != nil {
 		fmt.Fprintf(w, "Signal 2   pending — needs the reaction-day open\n")
 	}
+	writeWebEarnings(w, p.Web)
+}
+
+// writeWebEarnings renders the --web-earnings read of a release: the result
+// vs consensus, guidance vs consensus and vs the previous guidance, and
+// where the numbers came from. Context only — guidance is not a signal input.
+func writeWebEarnings(w io.Writer, web *domain.WebEarnings) {
+	if web == nil {
+		return
+	}
+	line := "Web      " + web.FiscalQuarter + ":"
+	if web.EPSActual != nil {
+		line += fmt.Sprintf(" EPS $%.2f", *web.EPSActual)
+		if web.EPSConsensus != nil {
+			line += fmt.Sprintf(" vs $%.2f %s", *web.EPSConsensus, web.ConsensusSource)
+		}
+		if web.SurprisePct != nil {
+			line += fmt.Sprintf(" (%+.1f%%)", *web.SurprisePct)
+		}
+	}
+	if web.RevenueActualB != nil {
+		line += fmt.Sprintf("  ·  Rev $%.2fB", *web.RevenueActualB)
+		if c := web.RevenueConsensusB; c != nil && *c != 0 {
+			line += fmt.Sprintf(" vs $%.2fB (%+.1f%%)", *c, (*web.RevenueActualB / *c - 1)*100)
+		}
+	}
+	fmt.Fprintln(w, line)
+	for _, g := range web.Guidance {
+		var parts []string
+		if s := guideText("EPS $", "", g.EPS, g.PriorEPS, g.ConsensusEPS, "%.2f"); s != "" {
+			parts = append(parts, s)
+		}
+		if s := guideText("Rev $", "B", g.RevenueB, g.PriorRevenueB, g.ConsensusRevenueB, "%.2f"); s != "" {
+			parts = append(parts, s)
+		}
+		if len(parts) > 0 {
+			fmt.Fprintf(w, "         Guide %s: %s\n", g.Period, strings.Join(parts, "  ·  "))
+		}
+	}
+	if len(web.Sources) > 0 {
+		fmt.Fprintf(w, "         Sources: %s\n", strings.Join(sourceHosts(web.Sources), ", "))
+	}
+	if !web.Usable {
+		fmt.Fprintf(w, "         ⚠ not used for Signal 1: %s\n", web.RejectedBecause)
+	}
+}
+
+// guideText formats one guided range with its consensus and the previous
+// guidance, e.g. "EPS $2.19–2.25 vs cons $2.03 (+9.4% at mid)".
+func guideText(prefix, suffix string, r, prior *domain.Range, cons *float64, num string) string {
+	mid, ok := rangeMid(r)
+	if !ok {
+		return ""
+	}
+	s := prefix + rangeText(r, num) + suffix
+	if cons != nil && *cons != 0 {
+		s += fmt.Sprintf(" vs cons $"+num+suffix+" (%+.1f%% at mid)", *cons, (mid / *cons - 1)*100)
+	}
+	if pm, ok := rangeMid(prior); ok {
+		verb := "maintained"
+		switch {
+		case mid > pm*1.0005:
+			verb = "raised"
+		case mid < pm*0.9995:
+			verb = "lowered"
+		}
+		s += fmt.Sprintf(", %s from $%s%s", verb, rangeText(prior, num), suffix)
+	}
+	return s
+}
+
+func rangeMid(r *domain.Range) (float64, bool) {
+	switch {
+	case r == nil:
+		return 0, false
+	case r.Low != nil && r.High != nil:
+		return (*r.Low + *r.High) / 2, true
+	case r.Low != nil:
+		return *r.Low, true
+	case r.High != nil:
+		return *r.High, true
+	}
+	return 0, false
+}
+
+func rangeText(r *domain.Range, num string) string {
+	switch {
+	case r.Low != nil && r.High != nil && *r.Low != *r.High:
+		return fmt.Sprintf(num+"–"+num, *r.Low, *r.High)
+	case r.Low != nil:
+		return fmt.Sprintf(num, *r.Low)
+	}
+	return fmt.Sprintf(num, *r.High)
+}
+
+// sourceHosts shortens source URLs to their distinct host names.
+func sourceHosts(urls []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, u := range urls {
+		h := u
+		if pu, err := url.Parse(u); err == nil && pu.Host != "" {
+			h = strings.TrimPrefix(pu.Host, "www.")
+		}
+		if !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // writeDrift renders the post-earnings drift prediction, made after the

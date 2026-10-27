@@ -63,6 +63,7 @@ func main() {
 	consensusFromFlag := flag.String("consensus-from", "2021-01-01", "Earliest announcement date for --backfill-consensus")
 	postReleaseFlag := flag.Bool("post-release", false, "Add post-release signals for reports already out: Signal 1 (at the release) and Signal 2 (at the reaction-day open)")
 	eventsDatasetFlag := flag.String("events-dataset", "data/events_10y.jsonl", "Event history used to train/calibrate the post-release signals")
+	webEarningsFlag := flag.Bool("web-earnings", false, "With --post-release: when the Nasdaq calendar has no surprise yet for a released report, read EPS vs consensus and guidance from the web (LLM + web search, ~2 min per report, cached)")
 	flag.Parse()
 
 	if *backfillFlag != "" {
@@ -282,7 +283,7 @@ func main() {
 			resultCh <- r
 		}
 		if *postReleaseFlag {
-			held = attachPostRelease(held, *eventsDatasetFlag)
+			held = attachPostRelease(held, *eventsDatasetFlag, *webEarningsFlag)
 			for _, r := range held {
 				if predLog != nil {
 					logged += logPostRelease(predLog, r, exCfg)
@@ -400,19 +401,34 @@ func logPrediction(l *tracking.Log, r domain.EarningsResult, cfg exchange.Config
 
 // attachPostRelease scores released reports with the post-release signals
 // (sibling llm-earnings-agent `pead live`) and attaches them to the results.
-func attachPostRelease(results []domain.EarningsResult, eventsPath string) []domain.EarningsResult {
-	released := 0
+func attachPostRelease(results []domain.EarningsResult, eventsPath string, web bool) []domain.EarningsResult {
+	loc, err := time.LoadLocation(exchange.DefaultUSConfig.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	today := time.Now().In(loc).Format("2006-01-02")
+	released, backup := 0, 0
 	for _, r := range results {
-		if r.EPSSurprisePct != nil {
+		switch {
+		case r.EPSSurprisePct != nil:
 			released++
+		case web && isReleased(r, today):
+			backup++
 		}
 	}
-	if released == 0 {
-		logging.Logf("Post-release: no reports with a consensus surprise yet (signals need the report to be out)")
+	if released+backup == 0 {
+		hint := ""
+		if !web {
+			hint = "; add --web-earnings to read released reports' surprise from the web"
+		}
+		logging.Logf("Post-release: no reports with a consensus surprise yet (signals need the report to be out%s)", hint)
 		return results
 	}
-	logging.Logf("Post-release: scoring %d released report(s) against %s ...", released, eventsPath)
-	signals, err := pead.Score(context.Background(), eventsPath, results)
+	logging.Logf("Post-release: scoring %d released report(s) against %s ...", released+backup, eventsPath)
+	if backup > 0 {
+		logging.Logf("Post-release: %d report(s) have no Nasdaq surprise yet — reading them from the web (~2 min each) ...", backup)
+	}
+	signals, err := pead.Score(context.Background(), eventsPath, results, web && backup > 0)
 	if err != nil {
 		logging.Logf("Warning: post-release signals unavailable: %v", err)
 		return results
@@ -424,6 +440,12 @@ func attachPostRelease(results []domain.EarningsResult, eventsPath string) []dom
 		}
 	}
 	return results
+}
+
+// isReleased reports whether r's earnings are already out: an earlier date,
+// or today before the open. Mirrors the agent's needs_backup.
+func isReleased(r domain.EarningsResult, today string) bool {
+	return r.EarningsDate != "" && (r.EarningsDate < today || (r.EarningsDate == today && r.EarningsTime == "bmo"))
 }
 
 // logPostRelease logs Signal 1 and (once the open is known) Signal 2.

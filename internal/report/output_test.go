@@ -427,3 +427,44 @@ func TestWriteStockCard_AnalystCountZero(t *testing.T) {
 		t.Error("expected N/A for analyst counts when total is 0")
 	}
 }
+
+func TestWriteWebEarnings(t *testing.T) {
+	// The agent's JSON for CDNS 2026-10-26 (trimmed), decoded with the Go contract.
+	raw := `{"fiscal_quarter":"Q3 2026 (Sep/2026)","eps_actual":2.11,"eps_consensus":2.04,
+	  "consensus_source":"Zacks","surprise_pct":3.43,"revenue_actual_b":1.633,"revenue_consensus_b":1.61,
+	  "guidance":[
+	    {"period":"Q4 2026","eps":{"low":2.19,"high":2.25},"revenue_b":{"low":1.695,"high":1.725},
+	     "prior_eps":null,"prior_revenue_b":null,"consensus_eps":2.03,"consensus_revenue_b":1.65},
+	    {"period":"FY 2026","eps":{"low":8.37,"high":8.43},"revenue_b":{"low":6.387,"high":6.417},
+	     "prior_eps":{"low":8.05,"high":8.15},"prior_revenue_b":{"low":6.26,"high":6.34},
+	     "consensus_eps":null,"consensus_revenue_b":null}],
+	  "sources":["https://www.sec.gov/a.htm","https://finance.yahoo.com/b","https://www.sec.gov/c.htm"],
+	  "notes":"","usable":true,"rejected_because":""}`
+	var web domain.WebEarnings
+	if err := json.Unmarshal([]byte(raw), &web); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	writeWebEarnings(&buf, &web)
+	out := buf.String()
+	for _, want := range []string{
+		"EPS $2.11 vs $2.04 Zacks (+3.4%)",
+		"Rev $1.63B vs $1.61B (+1.4%)",
+		"Guide Q4 2026: EPS $2.19–2.25 vs cons $2.03 (+9.4% at mid)",
+		"Guide FY 2026: EPS $8.37–8.43, raised from $8.05–8.15",
+		"Sources: sec.gov, finance.yahoo.com\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "not used") {
+		t.Errorf("usable result flagged:\n%s", out)
+	}
+	web.Usable, web.RejectedBecause = false, "no source URL"
+	buf.Reset()
+	writeWebEarnings(&buf, &web)
+	if !strings.Contains(buf.String(), "⚠ not used for Signal 1: no source URL") {
+		t.Errorf("rejection not shown:\n%s", buf.String())
+	}
+}

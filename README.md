@@ -73,6 +73,9 @@ go run . --backfill-consensus data/events_10y.jsonl
 # report; Signal 2 needs the reaction-day open, so run after 09:30 ET.
 go run . --from 2026-10-19 --to 2026-10-20 --min-cap-b 10 --post-release --log-predictions
 
+# Same, with the web backup for reports Nasdaq hasn't filled in yet (LLM + web search)
+go run . --from 2026-10-26 --to 2026-10-26 --symbol CDNS --post-release --web-earnings --log-predictions
+
 # Any time: score everything logged so far
 go run . --score-predictions
 ```
@@ -94,6 +97,15 @@ Signal 2   no trade      decile 1/10 at the open (gap +3.2%); decile history: me
   edge and the short deciles averaged about zero, so deciles 1–9 read "no trade". Hedging with SPY is
   optional: SPY's open→close (σ ≈ 0.7%) is small next to the stock's (σ ≈ 5.7%), so the hedge removes the
   market's direction on the day but hardly changes the risk.
+- **Web backup (`--web-earnings`):** Nasdaq's surprise can lag a report by hours, and since mid-2025 a
+  row can briefly show last year's EPS as the actual (CDNS 2026-10-26: $1.51 = Q3 2025), so the tool never
+  computes a surprise from a blank row (except an exact in-line beat, which Nasdaq leaves blank). With the
+  flag, a released report with no surprise is looked up on the web by Claude (`claude -p` with web search,
+  ~2 min each): EPS vs the **Zacks** consensus (the basis Signal 1 is calibrated on), revenue, and next-quarter
+  / full-year guidance vs consensus and the previous guidance. The surprise is recomputed from the two EPS
+  numbers and used only if a source URL is given and the fiscal quarter matches; the card marks it
+  `[web (Zacks)]` and the log records `"source"`. Guidance is shown for context; it is not a signal input.
+  Results are cached in `data/web_earnings/`.
 - **Logging rules:** calls count only if logged before 16:00 ET on the reaction day. `--score-predictions`
   scores Signal 1 on a >1% reaction-day move and Signal 2 (decile 10 longs) on the sign of open→close minus
   SPY — what the model predicts; an unhedged trade's P&L differs by SPY's open→close that day.
@@ -114,6 +126,7 @@ Signal 2   no trade      decile 1/10 at the open (gap +3.2%); decile history: me
 | `--no-peers` | off | Disable sector peer analysis (faster; US-only feature) |
 | `--no-news` | off | Disable material 8-K event fetching (faster; US-only feature) |
 | `--gex` | off | Compute dealer gamma exposure table — **requires `--symbol`** |
+| `--web-earnings` | off | With `--post-release`: read a released report's surprise and guidance from the web when Nasdaq has none yet |
 | `--post-release` | off | Add Signal 1 / Signal 2 for reports already out (see Post-release signals) |
 | `--events-dataset FILE` | `data/events_10y.jsonl` | Event history that trains/calibrates the post-release signals |
 | `--log-predictions` | off | Append every call (pre-release Rating, LLM, drift, Signal 1/2) to `--predictions-file` |

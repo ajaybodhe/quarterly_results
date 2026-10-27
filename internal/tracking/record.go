@@ -63,6 +63,7 @@ type Record struct {
 	ReactionDay  string         `json:"reaction_day,omitempty"`  // drift records: the reaction already observed
 	SectorETF    string         `json:"sector_etf,omitempty"`    // drift records: benchmark for sector-adjusted drift
 	Decile       int            `json:"decile,omitempty"`        // intraday records: Signal 2 decile (1..10)
+	Source       string         `json:"source,omitempty"`        // release/intraday: where the EPS surprise came from (nasdaq / web (…))
 	Rating       *Prediction    `json:"rating,omitempty"`        // Recommendation, or DriftRecommendation for drift records
 	LLM          *LLMPrediction `json:"llm,omitempty"`
 }

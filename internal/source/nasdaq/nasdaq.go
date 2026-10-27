@@ -225,7 +225,7 @@ func (c *Client) FetchEarningsCalendar(from, to time.Time) ([]domain.EarningsEve
 				FiscalQuarterEnding: row.FiscalQuarterEnding,
 				EPSForecast:         parseEPS(row.EPSForecastRaw),
 				LastYearEPS:         parseEPS(row.LastYearEPSRaw),
-				EPSSurprisePct:      parseSurprise(row.SurpriseRaw),
+				EPSSurprisePct:      surprisePct(row.SurpriseRaw, row.EPSRaw, row.EPSForecastRaw),
 			}
 		}
 	}
@@ -259,7 +259,7 @@ func (c *Client) FetchReported(date time.Time) ([]ReportedEarnings, error) {
 			Symbol:      strings.ToUpper(strings.TrimSpace(r.Symbol)),
 			Time:        normalizeNasdaqTime(r.Time),
 			EPSForecast: parseEPS(r.EPSForecastRaw),
-			SurprisePct: parseSurprise(r.SurpriseRaw),
+			SurprisePct: surprisePct(r.SurpriseRaw, r.EPSRaw, r.EPSForecastRaw),
 		}
 		if v := strings.TrimSpace(r.EPSRaw); v != "" && v != "N/A" && v != "-" {
 			eps := parseEPS(v)
@@ -273,6 +273,25 @@ func (c *Client) FetchReported(date time.Time) ([]ReportedEarnings, error) {
 
 // parseSurprise parses Nasdaq's "% Surprise" column ("3.37", "-12.5", "N/A",
 // ""), returning nil when the date hasn't reported or the value is missing.
+// surprisePct is Nasdaq's % Surprise. Nasdaq leaves it blank for an exact
+// in-line report, so a reported EPS equal to the forecast yields 0. Any other
+// blank stays nil: since mid-2025 a row whose actual isn't in yet can show
+// last year's EPS as the actual (e.g. CDNS 2026-10-26: $1.51 = Q3 2025), so
+// computing a surprise from it would be wrong.
+func surprisePct(surpriseRaw, epsRaw, forecastRaw string) *float64 {
+	if v := parseSurprise(surpriseRaw); v != nil {
+		return v
+	}
+	if a := strings.TrimSpace(epsRaw); a == "" || a == "N/A" || a == "-" {
+		return nil
+	}
+	if f := parseEPS(forecastRaw); f != 0 && parseEPS(epsRaw) == f {
+		zero := 0.0
+		return &zero
+	}
+	return nil
+}
+
 func parseSurprise(s string) *float64 {
 	s = strings.TrimSuffix(strings.TrimSpace(s), "%")
 	if s == "" || s == "N/A" || s == "-" {

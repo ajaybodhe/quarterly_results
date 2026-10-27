@@ -57,6 +57,44 @@ type PostRelease struct {
 	Model            string         `json:"model,omitempty"`
 	Signal1          *ReleaseSignal `json:"signal1,omitempty"`
 	Signal2          *OpenSignal    `json:"signal2,omitempty"`
+	Web              *WebEarnings   `json:"web,omitempty"` // --web-earnings backup, when it ran
+}
+
+// WebEarnings is the web backup's read of a just-released report: EPS vs
+// consensus (Zacks preferred — the basis Signal 1 is calibrated on), revenue
+// and guidance, with the URLs the numbers came from. Usable is false when the
+// checks failed (no source, wrong quarter, missing EPS), and then its surprise
+// was not used.
+type WebEarnings struct {
+	FiscalQuarter     string     `json:"fiscal_quarter"`
+	EPSActual         *float64   `json:"eps_actual"`
+	EPSConsensus      *float64   `json:"eps_consensus"`
+	ConsensusSource   string     `json:"consensus_source"`
+	SurprisePct       *float64   `json:"surprise_pct"`
+	RevenueActualB    *float64   `json:"revenue_actual_b"`
+	RevenueConsensusB *float64   `json:"revenue_consensus_b"`
+	Guidance          []Guidance `json:"guidance"`
+	Sources           []string   `json:"sources"`
+	Notes             string     `json:"notes"`
+	Usable            bool       `json:"usable"`
+	RejectedBecause   string     `json:"rejected_because"`
+}
+
+// Guidance is one guided period (next quarter or fiscal year).
+type Guidance struct {
+	Period            string   `json:"period"`
+	EPS               *Range   `json:"eps"`
+	RevenueB          *Range   `json:"revenue_b"`
+	PriorEPS          *Range   `json:"prior_eps"`
+	PriorRevenueB     *Range   `json:"prior_revenue_b"`
+	ConsensusEPS      *float64 `json:"consensus_eps"`
+	ConsensusRevenueB *float64 `json:"consensus_revenue_b"`
+}
+
+// Range is a guided low–high range; either end may be missing.
+type Range struct {
+	Low  *float64 `json:"low"`
+	High *float64 `json:"high"`
 }
 
 // ReleaseSignal is Signal 1: how reaction days went historically (2021+)
@@ -67,6 +105,9 @@ type ReleaseSignal struct {
 	N               int     `json:"n"`
 	MeanReactionPct float64 `json:"mean_reaction_pct"`
 	Label           string  `json:"label"` // Positive (P≥55%) / Negative (P≤45%) / Neutral
+	// SurpriseSource is "nasdaq" (calendar % Surprise) or "web (<consensus>)"
+	// when the --web-earnings backup supplied it.
+	SurpriseSource string `json:"surprise_source,omitempty"`
 }
 
 // OpenSignal is Signal 2: the predicted reaction-day open→close minus SPY,

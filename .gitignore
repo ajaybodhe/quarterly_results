@@ -4,3 +4,4 @@ events.jsonl
 data/*.jsonl
 data/*.jsonl.done
 data/nasdaq_calendar/
+data/web_earnings/

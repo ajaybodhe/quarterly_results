@@ -300,7 +300,7 @@ func postReleaseResult() domain.EarningsResult {
 		Symbol: "PGR", EarningsTime: "bmo",
 		PostRelease: &domain.PostRelease{
 			Symbol: "PGR", AnnouncementDate: "2026-10-14", ReactionDay: "2026-10-14",
-			Signal1: &domain.ReleaseSignal{SurprisePct: 3.1, PUp: 0.40, N: 2424, Label: "Negative"},
+			Signal1: &domain.ReleaseSignal{SurprisePct: 3.1, PUp: 0.40, N: 2424, Label: "Negative", SurpriseSource: "web (Zacks)"},
 			Signal2: &domain.OpenSignal{PredictedPct: 1.2, Decile: 10, Lean: "LONG", HistMeanPct: 1.06, HistHit: &hit},
 		},
 	}
@@ -309,11 +309,11 @@ func postReleaseResult() domain.EarningsResult {
 func TestNewPostReleaseRecords(t *testing.T) {
 	now := at("2026-10-14 09:45")
 	rel, ok := NewReleaseRecord(postReleaseResult(), exchange.DefaultUSConfig, now)
-	if !ok || rel.Horizon != HorizonRelease || rel.Rating.Label != "Negative" || rel.EarningsDate != "2026-10-14" {
+	if !ok || rel.Horizon != HorizonRelease || rel.Rating.Label != "Negative" || rel.EarningsDate != "2026-10-14" || rel.Source != "web (Zacks)" {
 		t.Errorf("release record = %+v", rel)
 	}
 	in, ok := NewIntradayRecord(postReleaseResult(), exchange.DefaultUSConfig, now)
-	if !ok || in.Horizon != HorizonIntraday || in.Rating.Label != "Positive" || in.Decile != 10 {
+	if !ok || in.Horizon != HorizonIntraday || in.Rating.Label != "Positive" || in.Decile != 10 || in.Source != "web (Zacks)" {
 		t.Errorf("intraday record = %+v", in)
 	}
 	noOpen := postReleaseResult()

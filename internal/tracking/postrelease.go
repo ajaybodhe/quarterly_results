@@ -31,6 +31,7 @@ func NewReleaseRecord(r domain.EarningsResult, cfg exchange.Config, now time.Tim
 		EarningsDate: p.AnnouncementDate,
 		EarningsTime: r.EarningsTime,
 		ReactionDay:  p.ReactionDay,
+		Source:       s.SurpriseSource,
 		Rating:       &Prediction{Label: s.Label, Score: (s.PUp - 0.5) * 200, Confidence: math.Abs(s.PUp-0.5) * 2},
 	}, true
 }
@@ -58,8 +59,18 @@ func NewIntradayRecord(r domain.EarningsResult, cfg exchange.Config, now time.Ti
 		EarningsTime: r.EarningsTime,
 		ReactionDay:  p.ReactionDay,
 		Decile:       s.Decile,
+		Source:       surpriseSource(p),
 		Rating:       &Prediction{Label: label, Score: s.PredictedPct, Confidence: float64(s.Decile) / 10},
 	}, true
+}
+
+// surpriseSource is where Signal 1's EPS surprise came from; Signal 2 uses
+// the same surprise as an input.
+func surpriseSource(p *domain.PostRelease) string {
+	if p.Signal1 == nil {
+		return ""
+	}
+	return p.Signal1.SurpriseSource
 }
 
 // PostReleaseOutcome is a scored Signal 1 or Signal 2 call.
